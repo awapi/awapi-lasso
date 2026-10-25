@@ -4,6 +4,8 @@ allowBuilds:
   esbuild: true
   sharp: true
 
+minimumReleaseAge: 0
+
 overrides:
   dompurify: ^3.4.17
 
