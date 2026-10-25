@@ -287,7 +287,7 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
             style={tabBtnStyle(activeTab === 'authProfiles', colors)}
           >
             <KeyRound size={12} />
-            Auth &amp; OAuth 2.0 Profiles ({authProfiles.length})
+            Auth Profiles ({authProfiles.length})
           </button>
         </div>
 

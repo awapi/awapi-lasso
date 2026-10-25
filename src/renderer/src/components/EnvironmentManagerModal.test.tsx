@@ -63,8 +63,10 @@ describe('EnvironmentManagerModal', () => {
     });
     expect(screen.getByTestId('collection-vars-key-0')).toHaveValue('apiVersion');
 
-    // Switch to Auth & OAuth 2.0 Profiles tab and create a profile
-    fireEvent.click(screen.getByTestId('env-modal-tab-auth-profiles'));
+    // Switch to Auth Profiles tab and create a profile
+    const authProfilesTab = screen.getByTestId('env-modal-tab-auth-profiles');
+    expect(authProfilesTab).toHaveTextContent('Auth Profiles (0)');
+    fireEvent.click(authProfilesTab);
     fireEvent.click(screen.getByTestId('auth-profile-add-btn'));
     expect(screen.getByTestId('auth-profile-name-input')).toHaveValue('Auth Profile 1');
   });

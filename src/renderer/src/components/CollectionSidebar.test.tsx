@@ -223,4 +223,62 @@ describe('CollectionSidebar', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('context-menu-fld_admin')).not.toBeInTheDocument();
   });
+
+  it('renders independent scrollable collection sections and a draggable splitter between collections', () => {
+    const secondCollection = createEmptyCollection('Public Web APIs', {
+      metadata: { id: 'col_public', name: 'Public Web APIs' },
+      items: [getReq],
+    });
+
+    const multiEntries: WorkspaceCollectionEntry[] = [
+      ...sampleEntries,
+      {
+        filePath: '/Users/me/apis/public.awjc',
+        collection: secondCollection,
+      },
+    ];
+
+    render(
+      <CollectionSidebar
+        collections={multiEntries}
+        activeCollectionPath="/Users/me/apis/payments.awjc"
+        onSelectCollection={vi.fn()}
+        onSelectRequest={vi.fn()}
+        onNewCollection={vi.fn()}
+        onImportCollection={vi.fn()}
+        onSaveCollection={vi.fn()}
+        onExportCollection={vi.fn()}
+        onNewHttpRequest={vi.fn()}
+        onNewGraphQLRequest={vi.fn()}
+        onNewFolder={vi.fn()}
+        onDuplicateItem={vi.fn()}
+        onRenameItem={vi.fn()}
+        onDeleteItem={vi.fn()}
+      />,
+    );
+
+    const firstTree = screen.getByTestId('collection-tree-col_payments');
+    const secondTree = screen.getByTestId('collection-tree-col_public');
+    expect(firstTree).toHaveStyle({ overflowY: 'auto' });
+    expect(secondTree).toHaveStyle({ overflowY: 'auto' });
+
+    const splitter = screen.getByTestId('collection-splitter-0');
+    expect(splitter).toHaveAttribute('role', 'separator');
+    expect(splitter).toHaveStyle({ cursor: 'row-resize' });
+
+    const firstNode = screen.getByTestId('collection-node-col_payments');
+    const secondNode = screen.getByTestId('collection-node-col_public');
+
+    // Drag splitter down by 60px (default fallback start height in jsdom is 240 -> 300px)
+    fireEvent.mouseDown(splitter, { clientY: 200 });
+    fireEvent.mouseMove(window, { clientY: 260 });
+    fireEvent.mouseUp(window);
+
+    expect(firstNode).toHaveStyle({ height: '300px' });
+    expect(secondNode).toHaveStyle({ flex: '1 1 0%' });
+
+    // Double-click resets custom height back to equal flex distribution
+    fireEvent.doubleClick(splitter);
+    expect(firstNode).toHaveStyle({ flex: '1 1 0%' });
+  });
 });

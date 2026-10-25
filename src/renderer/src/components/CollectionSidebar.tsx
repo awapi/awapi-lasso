@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -121,6 +121,10 @@ function filterTreeItems(items: CollectionTreeItem[], query: string): Collection
   return result;
 }
 
+const MIN_COLLECTION_HEIGHT = 96;
+const DEFAULT_COLLECTION_HEIGHT = 240;
+const MAX_COLLECTION_HEIGHT = 900;
+
 export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
   collections,
   activeCollectionPath,
@@ -154,6 +158,140 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>('');
+  const [collectionHeights, setCollectionHeights] = useState<Record<string, number>>({});
+  const [draggingSplitterIndex, setDraggingSplitterIndex] = useState<number | null>(null);
+
+  const collectionListRef = useRef<HTMLUListElement | null>(null);
+  const collectionNodeRefs = useRef<Record<string, HTMLLIElement | null>>({});
+  const dragStateRef = useRef<{
+    index: number;
+    topId: string;
+    bottomId: string;
+    startY: number;
+    topStartHeight: number;
+    bottomStartHeight?: number;
+    isBottomLastExpanded: boolean;
+  } | null>(null);
+
+  const handleSplitterMouseDown = useCallback(
+    (index: number, e: React.MouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      const topEntry = collections[index];
+      const bottomEntry = collections[index + 1];
+      if (!topEntry || !bottomEntry) return;
+
+      const topId = topEntry.collection.metadata.id || topEntry.filePath;
+      const bottomId = bottomEntry.collection.metadata.id || bottomEntry.filePath;
+
+      if (collapsedIds[topId] || collapsedIds[bottomId]) return;
+
+      const topRectHeight =
+        collectionNodeRefs.current[topId]?.getBoundingClientRect().height ?? 0;
+      const topStartHeight =
+        topRectHeight > 0
+          ? Math.round(topRectHeight)
+          : (collectionHeights[topId] ?? DEFAULT_COLLECTION_HEIGHT);
+
+      let lastExpandedIdx = -1;
+      for (let i = collections.length - 1; i >= 0; i--) {
+        const cId = collections[i].collection.metadata.id || collections[i].filePath;
+        if (!collapsedIds[cId]) {
+          lastExpandedIdx = i;
+          break;
+        }
+      }
+      const isBottomLastExpanded = index + 1 === lastExpandedIdx;
+
+      const bottomRectHeight =
+        collectionNodeRefs.current[bottomId]?.getBoundingClientRect().height ?? 0;
+      const bottomStartHeight = isBottomLastExpanded
+        ? undefined
+        : bottomRectHeight > 0
+          ? Math.round(bottomRectHeight)
+          : collectionHeights[bottomId];
+
+      dragStateRef.current = {
+        index,
+        topId,
+        bottomId,
+        startY: e.clientY,
+        topStartHeight,
+        bottomStartHeight,
+        isBottomLastExpanded,
+      };
+      setDraggingSplitterIndex(index);
+    },
+    [collections, collapsedIds, collectionHeights],
+  );
+
+  const handleSplitterDoubleClick = useCallback(
+    (index: number) => {
+      const topEntry = collections[index];
+      const bottomEntry = collections[index + 1];
+      if (!topEntry || !bottomEntry) return;
+      const topId = topEntry.collection.metadata.id || topEntry.filePath;
+      const bottomId = bottomEntry.collection.metadata.id || bottomEntry.filePath;
+
+      setCollectionHeights(prev => {
+        const next = { ...prev };
+        delete next[topId];
+        delete next[bottomId];
+        return next;
+      });
+    },
+    [collections],
+  );
+
+  useEffect(() => {
+    if (draggingSplitterIndex === null) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const dragState = dragStateRef.current;
+      if (!dragState) return;
+
+      const delta = e.clientY - dragState.startY;
+      const listRectHeight =
+        collectionListRef.current?.getBoundingClientRect().height ?? 0;
+      const effectiveMax =
+        listRectHeight > MIN_COLLECTION_HEIGHT * 2
+          ? listRectHeight - MIN_COLLECTION_HEIGHT
+          : MAX_COLLECTION_HEIGHT;
+
+      const nextTopHeight = Math.max(
+        MIN_COLLECTION_HEIGHT,
+        Math.min(effectiveMax, Math.round(dragState.topStartHeight + delta)),
+      );
+
+      setCollectionHeights(prev => {
+        const next: Record<string, number> = {
+          ...prev,
+          [dragState.topId]: nextTopHeight,
+        };
+        if (dragState.isBottomLastExpanded) {
+          delete next[dragState.bottomId];
+        } else if (dragState.bottomStartHeight !== undefined) {
+          const actualDelta = nextTopHeight - dragState.topStartHeight;
+          next[dragState.bottomId] = Math.max(
+            MIN_COLLECTION_HEIGHT,
+            Math.round(dragState.bottomStartHeight - actualDelta),
+          );
+        }
+        return next;
+      });
+    };
+
+    const handleMouseUp = () => {
+      dragStateRef.current = null;
+      setDraggingSplitterIndex(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingSplitterIndex]);
 
   useEffect(() => {
     if (!openMenuId) return;
@@ -746,7 +884,16 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
       </div>
 
       {/* Content Area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflowY: mode === 'collections' ? 'hidden' : 'auto',
+          padding: 8,
+        }}
+      >
         {mode === 'collections' ? (
           collections.length === 0 ? (
             <div
@@ -758,6 +905,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
             </div>
           ) : (
             <ul
+              ref={collectionListRef}
               data-testid="collection-list"
               style={{
                 listStyle: 'none',
@@ -765,42 +913,75 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                 margin: 0,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
+                flex: 1,
+                minHeight: 0,
+                overflowY: 'auto',
               }}
             >
-              {collections.map(entry => {
+              {collections.map((entry, index) => {
                 const colId = entry.collection.metadata.id || entry.filePath;
                 const isCollapsed = Boolean(collapsedIds[colId]);
                 const isSelected = activeCollectionPath === entry.filePath;
                 const isColMenuOpen = openMenuId === `col:${entry.filePath}`;
                 const filteredItems = filterTreeItems(entry.collection.items, searchQuery);
+                const customHeight =
+                  !isCollapsed && collections.length > 1 ? collectionHeights[colId] : undefined;
+
+                const nextEntry = collections[index + 1];
+                const nextColId = nextEntry
+                  ? nextEntry.collection.metadata.id || nextEntry.filePath
+                  : null;
+                const isNextCollapsed = nextColId ? Boolean(collapsedIds[nextColId]) : false;
+                const isSplitterDisabled = isCollapsed || isNextCollapsed;
+                const isDraggingThisSplitter = draggingSplitterIndex === index;
 
                 return (
-                  <li
-                    key={entry.filePath}
-                    data-testid={`collection-node-${entry.collection.metadata.id}`}
-                    style={{
-                      borderRadius: 6,
-                      border: `1px solid ${isSelected ? colors.accent : colors.border}`,
-                      backgroundColor: colors.bgSecondary,
-                    }}
-                  >
-                    {/* Collection Header */}
-                    <div
-                      onClick={() => onSelectCollection(entry.filePath)}
-                      onContextMenu={e => {
-                        e.preventDefault();
-                        setOpenMenuId(isColMenuOpen ? null : `col:${entry.filePath}`);
+                  <React.Fragment key={entry.filePath}>
+                    <li
+                      ref={el => {
+                        collectionNodeRefs.current[colId] = el;
                       }}
+                      data-testid={`collection-node-${entry.collection.metadata.id}`}
                       style={{
+                        borderRadius: 6,
+                        border: `1px solid ${isSelected ? colors.accent : colors.border}`,
+                        backgroundColor: colors.bgSecondary,
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '6px 8px',
-                        cursor: 'pointer',
-                        position: 'relative',
+                        flexDirection: 'column',
+                        ...(isCollapsed
+                          ? {
+                              flex: '0 0 auto',
+                            }
+                          : customHeight !== undefined
+                            ? {
+                                height: customHeight,
+                                minHeight: MIN_COLLECTION_HEIGHT,
+                                flexShrink: 0,
+                                flexGrow: 0,
+                              }
+                            : {
+                                flex: '1 1 0%',
+                                minHeight: MIN_COLLECTION_HEIGHT,
+                              }),
                       }}
                     >
+                      {/* Collection Header */}
+                      <div
+                        onClick={() => onSelectCollection(entry.filePath)}
+                        onContextMenu={e => {
+                          e.preventDefault();
+                          setOpenMenuId(isColMenuOpen ? null : `col:${entry.filePath}`);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 8px',
+                          cursor: 'pointer',
+                          position: 'relative',
+                          flexShrink: 0,
+                        }}
+                      >
                       <div
                         style={{
                           display: 'flex',
@@ -1034,6 +1215,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
+                        flexShrink: 0,
                       }}
                     >
                       {entry.filePath}
@@ -1041,11 +1223,44 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
 
                     {/* Nested Tree */}
                     {!isCollapsed && (
-                      <div style={{ padding: '2px 4px 6px 4px' }}>
+                      <div
+                        data-testid={`collection-tree-${entry.collection.metadata.id}`}
+                        style={{
+                          padding: '2px 4px 6px 4px',
+                          flex: 1,
+                          minHeight: 0,
+                          overflowY: 'auto',
+                          overflowX: 'hidden',
+                        }}
+                      >
                         {filteredItems.map(item => renderTreeItem(entry.filePath, item, 0))}
                       </div>
                     )}
-                  </li>
+                    </li>
+
+                    {index < collections.length - 1 && (
+                      <li
+                        role="separator"
+                        aria-orientation="horizontal"
+                        data-testid={`collection-splitter-${index}`}
+                        onMouseDown={e => handleSplitterMouseDown(index, e)}
+                        onDoubleClick={() => handleSplitterDoubleClick(index)}
+                        title="Drag to resize collections • Double-click to reset"
+                        style={{
+                          height: 6,
+                          margin: '3px 0',
+                          borderRadius: 3,
+                          cursor: isSplitterDisabled ? 'default' : 'row-resize',
+                          backgroundColor: isDraggingThisSplitter ? colors.accent : colors.border,
+                          flexShrink: 0,
+                          userSelect: 'none',
+                          transition: isDraggingThisSplitter
+                            ? 'none'
+                            : 'background-color 0.12s ease',
+                        }}
+                      />
+                    )}
+                  </React.Fragment>
                 );
               })}
             </ul>
