@@ -29,6 +29,11 @@ declare global {
       openCollectionsWithDialog: () => Promise<OpenedCollectionPayload[] | null>;
       /** Reads, parses, and hydrates a `.awjc` / `.awj` collection from a specific disk path. */
       openCollectionFromPath: (filePath: string) => Promise<OpenedCollectionPayload>;
+      /** Opens a native dialog to pick an OpenAPI 3.x / Swagger 2.0 YAML/JSON file and imports it as a collection. */
+      importOpenApiWithDialog: () => Promise<{
+        sourcePath: string;
+        collection: AwjcCollection;
+      } | null>;
       /** Saves a collection to `filePath` (stripping `secret: true` values into OS Keychain). */
       saveCollection: (options: {
         filePath: string;
@@ -126,6 +131,8 @@ declare global {
       onMenuSaveCollection: (callback: () => void) => () => void;
       onMenuSaveCollectionAs: (callback: () => void) => () => void;
       onMenuOpenSettings: (callback: () => void) => () => void;
+      onMenuImportCurl: (callback: () => void) => () => void;
+      onMenuImportOpenApi: (callback: () => void) => () => void;
     };
   }
 }

@@ -117,12 +117,14 @@ describe('CollectionSidebar', () => {
     expect(onSelectHistoryEntry).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes context menu actions for collection and request items (New, Duplicate, Rename, Delete, Save, Export)', () => {
+  it('invokes context menu actions for collection and request items (New, Duplicate, Rename, Delete, Save, Export, Close, Generate Code)', () => {
     const onNewHttpRequest = vi.fn();
     const onExportCollection = vi.fn();
+    const onCloseCollection = vi.fn();
     const onDuplicateItem = vi.fn();
     const onRenameItem = vi.fn();
     const onDeleteItem = vi.fn();
+    const onGenerateCodeForRequest = vi.fn();
 
     render(
       <CollectionSidebar
@@ -133,12 +135,14 @@ describe('CollectionSidebar', () => {
         onImportCollection={vi.fn()}
         onSaveCollection={vi.fn()}
         onExportCollection={onExportCollection}
+        onCloseCollection={onCloseCollection}
         onNewHttpRequest={onNewHttpRequest}
         onNewGraphQLRequest={vi.fn()}
         onNewFolder={vi.fn()}
         onDuplicateItem={onDuplicateItem}
         onRenameItem={onRenameItem}
         onDeleteItem={onDeleteItem}
+        onGenerateCodeForRequest={onGenerateCodeForRequest}
       />,
     );
 
@@ -150,6 +154,18 @@ describe('CollectionSidebar', () => {
     fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));
     fireEvent.click(screen.getByTestId('col-menu-export-yaml-col_payments'));
     expect(onExportCollection).toHaveBeenCalledWith('/Users/me/apis/payments.awjc', 'yaml');
+
+    fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));
+    fireEvent.click(screen.getByTestId('col-menu-close-col_payments'));
+    expect(onCloseCollection).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
+
+    // Open request item menu -> Generate Code Snippet…
+    fireEvent.click(screen.getByTestId('item-menu-btn-req_get_users'));
+    fireEvent.click(screen.getByTestId('menu-generate-code-req_get_users'));
+    expect(onGenerateCodeForRequest).toHaveBeenCalledWith(
+      '/Users/me/apis/payments.awjc',
+      getReq,
+    );
 
     // Open request item menu -> Duplicate
     fireEvent.click(screen.getByTestId('item-menu-btn-req_get_users'));

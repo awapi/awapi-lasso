@@ -211,4 +211,38 @@ describe('GraphQLWorkspace component', () => {
       true,
     );
   });
+
+  it('places GraphQL Query / Mutation and GraphQL Variables side-by-side with a vertical splitter and two-way collapse', () => {
+    render(<ControlledHarness />);
+
+    const splitPane = screen.getByTestId('graphql-query-variables-split');
+    const resizer = screen.getByTestId('graphql-query-variables-split-resizer');
+    const queryPane = screen.getByTestId('graphql-query-variables-split-first');
+    const variablesPane = screen.getByTestId('graphql-query-variables-split-second');
+
+    expect(splitPane).toHaveAttribute('data-direction', 'horizontal');
+    expect(resizer).toHaveAttribute('aria-orientation', 'vertical');
+    expect(resizer).toHaveStyle({ cursor: 'col-resize' });
+    expect(variablesPane).toHaveStyle({ width: '280px' });
+
+    // Collapse Query pane (`‹`), then expand it (`›`)
+    fireEvent.click(
+      screen.getByTestId('graphql-query-variables-split-collapse-first-btn'),
+    );
+    expect(queryPane).toHaveAttribute('data-collapsed', 'true');
+    fireEvent.click(
+      screen.getByTestId('graphql-query-variables-split-collapse-first-btn'),
+    );
+    expect(queryPane).toHaveAttribute('data-collapsed', 'false');
+
+    // Collapse Variables pane (`›`), then expand it (`‹`)
+    fireEvent.click(
+      screen.getByTestId('graphql-query-variables-split-collapse-second-btn'),
+    );
+    expect(variablesPane).toHaveAttribute('data-collapsed', 'true');
+    fireEvent.click(
+      screen.getByTestId('graphql-query-variables-split-collapse-second-btn'),
+    );
+    expect(variablesPane).toHaveAttribute('data-collapsed', 'false');
+  });
 });

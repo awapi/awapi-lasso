@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Code2,
   Copy,
   Download,
   Edit3,
@@ -10,11 +11,11 @@ import {
   FolderOpen,
   FolderPlus,
   MoreVertical,
+  Play,
   Plus,
   Save,
   Search,
   Trash2,
-  Upload,
 } from 'lucide-react';
 import type {
   AwjcCollection,
@@ -49,18 +50,23 @@ export interface CollectionSidebarProps {
   onSelectCollection: (filePath: string) => void;
   onSelectRequest: (collectionPath: string, request: RequestItem) => void;
   onSelectHistoryEntry?: (entry: RequestHistoryEntry) => void;
+  onSaveHistoryEntryToCollection?: (entry: RequestHistoryEntry) => void;
   onClearHistory?: () => void;
   onNewCollection: () => void;
   onImportCollection: () => void;
+  onImportOpenApi?: () => void;
+  onRunCollection?: (collectionPath: string, folderId?: string) => void;
   onSaveCollection: (collectionPath: string) => void;
   onExportCollection: (collectionPath: string, format: 'yaml' | 'json') => void;
   onRevealInOs?: (collectionPath: string) => void;
+  onCloseCollection?: (collectionPath: string) => void;
   onNewHttpRequest: (collectionPath: string, parentFolderId?: string) => void;
   onNewGraphQLRequest: (collectionPath: string, parentFolderId?: string) => void;
   onNewFolder: (collectionPath: string, parentFolderId?: string) => void;
   onDuplicateItem: (collectionPath: string, itemId: string) => void;
   onRenameItem: (collectionPath: string, itemId: string, newName: string) => void;
   onDeleteItem: (collectionPath: string, itemId: string) => void;
+  onGenerateCodeForRequest?: (collectionPath: string, request: RequestItem) => void;
 }
 
 export function getMethodBadgeColor(method: string, protocol: 'http' | 'graphql'): string {
@@ -123,18 +129,23 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
   onSelectCollection,
   onSelectRequest,
   onSelectHistoryEntry,
+  onSaveHistoryEntryToCollection,
   onClearHistory,
   onNewCollection,
   onImportCollection,
+  onImportOpenApi,
+  onRunCollection,
   onSaveCollection,
   onExportCollection,
   onRevealInOs,
+  onCloseCollection,
   onNewHttpRequest,
   onNewGraphQLRequest,
   onNewFolder,
   onDuplicateItem,
   onRenameItem,
   onDeleteItem,
+  onGenerateCodeForRequest,
 }) => {
   const { colors, isLight } = useTheme();
   const [mode, setMode] = useState<'collections' | 'history'>('collections');
@@ -353,6 +364,19 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                 >
                   <FolderPlus size={12} /> New Folder
                 </button>
+                {onRunCollection && (
+                  <button
+                    type="button"
+                    data-testid={`menu-run-folder-${folder.id}`}
+                    onClick={() => {
+                      setOpenMenuId(null);
+                      onRunCollection(collectionPath, folder.id);
+                    }}
+                    style={menuItemStyle(colors)}
+                  >
+                    <Play size={12} /> Run Folder…
+                  </button>
+                )}
                 <button
                   type="button"
                   data-testid={`menu-duplicate-${folder.id}`}
@@ -517,6 +541,19 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
               gap: 2,
             }}
           >
+            {onGenerateCodeForRequest && (
+              <button
+                type="button"
+                data-testid={`menu-generate-code-${req.id}`}
+                onClick={() => {
+                  setOpenMenuId(null);
+                  onGenerateCodeForRequest(collectionPath, req);
+                }}
+                style={menuItemStyle(colors)}
+              >
+                <Code2 size={12} /> Generate Code Snippet…
+              </button>
+            )}
             <button
               type="button"
               data-testid={`menu-duplicate-${req.id}`}
@@ -626,7 +663,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
           </button>
         </div>
 
-        {/* New & Import Quick Actions */}
+        {/* New & Open Quick Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button
             type="button"
@@ -651,9 +688,9 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
           </button>
           <button
             type="button"
-            data-testid="sidebar-import-btn"
+            data-testid="open-collection-btn"
             onClick={onImportCollection}
-            title="Import Collection (.awjc / .awj)"
+            title="Open Collection (.awjc / .awj)"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -667,8 +704,8 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
               cursor: 'pointer',
             }}
           >
-            <Upload size={12} />
-            Import
+            <FolderOpen size={12} />
+            Open
           </button>
         </div>
       </div>
@@ -903,6 +940,19 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                           >
                             <FolderPlus size={12} /> New Folder
                           </button>
+                          {onRunCollection && (
+                            <button
+                              type="button"
+                              data-testid={`col-menu-run-${entry.collection.metadata.id}`}
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                onRunCollection(entry.filePath);
+                              }}
+                              style={menuItemStyle(colors)}
+                            >
+                              <Play size={12} /> Run Collection…
+                            </button>
+                          )}
                           <button
                             type="button"
                             data-testid={`col-menu-save-${entry.collection.metadata.id}`}
@@ -948,6 +998,28 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                             >
                               <FolderOpen size={12} /> Reveal in Finder/Explorer
                             </button>
+                          )}
+                          {onCloseCollection && (
+                            <>
+                              <div
+                                style={{
+                                  height: 1,
+                                  backgroundColor: colors.border,
+                                  margin: '2px 0',
+                                }}
+                              />
+                              <button
+                                type="button"
+                                data-testid={`col-menu-close-${entry.collection.metadata.id}`}
+                                onClick={() => {
+                                  setOpenMenuId(null);
+                                  onCloseCollection(entry.filePath);
+                                }}
+                                style={{ ...menuItemStyle(colors), color: colors.danger }}
+                              >
+                                <Trash2 size={12} /> Remove / Close Collection
+                              </button>
+                            </>
                           )}
                         </div>
                       )}
@@ -1065,6 +1137,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                         </span>
                         {entry.status !== undefined && (
                           <span
+                            data-testid={`history-status-badge-${entry.id}`}
                             style={{
                               fontSize: 10,
                               color:
@@ -1075,6 +1148,36 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                           >
                             {entry.status}
                           </span>
+                        )}
+                        {entry.durationMs !== undefined && (
+                          <span
+                            data-testid={`history-duration-${entry.id}`}
+                            style={{ fontSize: 10, color: colors.textSecondary }}
+                          >
+                            {Math.round(entry.durationMs)}ms
+                          </span>
+                        )}
+                        {onSaveHistoryEntryToCollection && (
+                          <button
+                            type="button"
+                            data-testid={`history-save-to-col-btn-${entry.id}`}
+                            title="Save to Collection"
+                            onClick={e => {
+                              e.stopPropagation();
+                              onSaveHistoryEntryToCollection(entry);
+                            }}
+                            style={{
+                              border: `1px solid ${colors.border}`,
+                              borderRadius: 4,
+                              backgroundColor: colors.bgPrimary,
+                              color: colors.textSecondary,
+                              fontSize: 10,
+                              padding: '1px 5px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Save
+                          </button>
                         )}
                       </li>
                     );

@@ -98,4 +98,86 @@ describe('ResizableSplitPane', () => {
     expect(firstPane).toHaveAttribute('data-collapsed', 'true');
     expect(onCollapsedChange).toHaveBeenCalledWith(true);
   });
+
+  it('supports primaryPane="second" for sizing and collapsing the right/second pane', () => {
+    const onSizeChange = vi.fn();
+    render(
+      <ResizableSplitPane
+        direction="horizontal"
+        primaryPane="second"
+        initialSize={280}
+        minSize={180}
+        maxSize={560}
+        collapsible
+        onSizeChange={onSizeChange}
+        testId="query-vars-split"
+        firstPane={<div>Query Editor</div>}
+        secondPane={<div>Variables Editor</div>}
+      />,
+    );
+
+    const secondPane = screen.getByTestId('query-vars-split-second');
+    const resizer = screen.getByTestId('query-vars-split-resizer');
+    const collapseBtn = screen.getByTestId('query-vars-split-collapse-btn');
+
+    expect(secondPane).toHaveStyle({ width: '280px' });
+
+    // Dragging splitter left (-40px) widens the second (right) pane to 320px
+    fireEvent.mouseDown(resizer, { clientX: 500 });
+    fireEvent.mouseMove(window, { clientX: 460 });
+    fireEvent.mouseUp(window);
+
+    expect(secondPane).toHaveStyle({ width: '320px' });
+    expect(onSizeChange).toHaveBeenCalledWith(320);
+
+    // Collapsing hides the second pane
+    expect(secondPane).toHaveAttribute('data-collapsed', 'false');
+    fireEvent.click(collapseBtn);
+    expect(secondPane).toHaveAttribute('data-collapsed', 'true');
+  });
+
+  it('supports collapsibleBoth to collapse and expand either the first or second pane', () => {
+    const onCollapsedPaneChange = vi.fn();
+    render(
+      <ResizableSplitPane
+        direction="horizontal"
+        primaryPane="second"
+        initialSize={280}
+        collapsibleBoth
+        onCollapsedPaneChange={onCollapsedPaneChange}
+        testId="two-way-split"
+        firstPane={<div>Query Editor</div>}
+        secondPane={<div>Variables Editor</div>}
+      />,
+    );
+
+    const firstPane = screen.getByTestId('two-way-split-first');
+    const secondPane = screen.getByTestId('two-way-split-second');
+
+    expect(firstPane).toHaveAttribute('data-collapsed', 'false');
+    expect(secondPane).toHaveAttribute('data-collapsed', 'false');
+
+    // Collapse first pane (Query)
+    fireEvent.click(screen.getByTestId('two-way-split-collapse-first-btn'));
+    expect(firstPane).toHaveAttribute('data-collapsed', 'true');
+    expect(secondPane).toHaveAttribute('data-collapsed', 'false');
+    expect(onCollapsedPaneChange).toHaveBeenCalledWith('first');
+
+    // Expand first pane back
+    fireEvent.click(screen.getByTestId('two-way-split-collapse-first-btn'));
+    expect(firstPane).toHaveAttribute('data-collapsed', 'false');
+    expect(secondPane).toHaveAttribute('data-collapsed', 'false');
+    expect(onCollapsedPaneChange).toHaveBeenCalledWith(null);
+
+    // Collapse second pane (Variables)
+    fireEvent.click(screen.getByTestId('two-way-split-collapse-second-btn'));
+    expect(firstPane).toHaveAttribute('data-collapsed', 'false');
+    expect(secondPane).toHaveAttribute('data-collapsed', 'true');
+    expect(onCollapsedPaneChange).toHaveBeenCalledWith('second');
+
+    // Expand second pane back
+    fireEvent.click(screen.getByTestId('two-way-split-collapse-second-btn'));
+    expect(firstPane).toHaveAttribute('data-collapsed', 'false');
+    expect(secondPane).toHaveAttribute('data-collapsed', 'false');
+  });
 });

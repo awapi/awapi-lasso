@@ -13,12 +13,12 @@ const sampleEnvironments: EnvironmentConfig[] = [
 ];
 
 describe('TopToolbar', () => {
-  it('renders active collection badge, environment switcher with color indicator, and manager buttons', () => {
+  it('renders active collection badge, environment switcher with color indicator, manager button, and import menu', () => {
     const onSelectEnvironment = vi.fn();
     const onOpenEnvironmentManager = vi.fn();
-    const onOpenOAuth2Manager = vi.fn();
     const onOpenPreferences = vi.fn();
-    const onOpenCollectionDialog = vi.fn();
+    const onOpenImportOpenApi = vi.fn();
+    const onOpenImportCurl = vi.fn();
 
     render(
       <ThemeProvider>
@@ -29,9 +29,9 @@ describe('TopToolbar', () => {
           activeEnvironmentName="staging"
           onSelectEnvironment={onSelectEnvironment}
           onOpenEnvironmentManager={onOpenEnvironmentManager}
-          onOpenOAuth2Manager={onOpenOAuth2Manager}
           onOpenPreferences={onOpenPreferences}
-          onOpenCollectionDialog={onOpenCollectionDialog}
+          onOpenImportOpenApi={onOpenImportOpenApi}
+          onOpenImportCurl={onOpenImportCurl}
           cliEnabled={true}
         />
       </ThemeProvider>,
@@ -52,8 +52,18 @@ describe('TopToolbar', () => {
     fireEvent.click(screen.getByTestId('open-env-manager-btn'));
     expect(onOpenEnvironmentManager).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByTestId('open-oauth2-manager-btn'));
-    expect(onOpenOAuth2Manager).toHaveBeenCalledTimes(1);
+    // Import dropdown menu shows OpenAPI / Swagger, cURL, and upcoming Bruno / Postman options
+    fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    expect(screen.getByTestId('toolbar-import-menu')).toBeInTheDocument();
+    expect(screen.getByTestId('import-bruno-btn')).toBeDisabled();
+    expect(screen.getByTestId('import-postman-btn')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('import-openapi-btn'));
+    expect(onOpenImportOpenApi).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    fireEvent.click(screen.getByTestId('open-import-curl-btn'));
+    expect(onOpenImportCurl).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId('open-preferences-btn'));
     expect(onOpenPreferences).toHaveBeenCalledTimes(1);
@@ -68,9 +78,7 @@ describe('TopToolbar', () => {
           activeEnvironmentName="local"
           onSelectEnvironment={vi.fn()}
           onOpenEnvironmentManager={vi.fn()}
-          onOpenOAuth2Manager={vi.fn()}
           onOpenPreferences={onOpenPreferences}
-          onOpenCollectionDialog={vi.fn()}
         />
       </ThemeProvider>,
     );

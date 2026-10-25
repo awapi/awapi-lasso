@@ -19,6 +19,16 @@ build/*
 !build/icon.png
 !build/icon.svg
 !build/icon-*.png
+!build/icons/
+!build/icons/*.png
+!build/awjc.icns
+!build/awjc.ico
+!build/awjc.png
+!build/awjc.svg
+!build/awj.icns
+!build/awj.ico
+!build/awj.png
+!build/awj.svg
 /release/
 
 # Testing

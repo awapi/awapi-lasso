@@ -95,4 +95,33 @@ describe('RequestUrlBar', () => {
     fireEvent.click(screen.getByTestId('cancel-request-btn'));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it('detects pasted curl commands in the URL bar and invokes onPasteCurl', () => {
+    const onPasteCurl = vi.fn();
+    const onUrlChange = vi.fn();
+
+    render(
+      <RequestUrlBar
+        method="GET"
+        url=""
+        onMethodChange={vi.fn()}
+        onUrlChange={onUrlChange}
+        onSend={vi.fn()}
+        onPasteCurl={onPasteCurl}
+      />,
+    );
+
+    const urlInput = screen.getByTestId('url-input');
+    fireEvent.paste(urlInput, {
+      clipboardData: {
+        getData: () =>
+          'curl -X POST https://api.example.com/v1/orders -H "Content-Type: application/json" -d \'{"sku":"A1"}\'',
+      },
+    });
+
+    expect(onPasteCurl).toHaveBeenCalledTimes(1);
+    expect(onPasteCurl.mock.calls[0][0].method).toBe('POST');
+    expect(onPasteCurl.mock.calls[0][0].url).toBe('https://api.example.com/v1/orders');
+    expect(onUrlChange).not.toHaveBeenCalled();
+  });
 });

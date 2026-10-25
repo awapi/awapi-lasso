@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Copy, KeyRound, Layers, Plus, Trash2, X } from 'lucide-react';
 import {
   createDefaultEnvironment,
@@ -40,6 +40,13 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
 }) => {
   const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState<EnvironmentModalTab>(initialTab);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
   const environments = collection.environments ?? [];
   const [selectedEnvId, setSelectedEnvId] = useState<string>(
     environments.find(e => e.name === collection.activeEnvironment)?.id ??

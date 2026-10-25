@@ -895,11 +895,13 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
             secondPane={
               <ResizableSplitPane
                 testId="graphql-query-variables-split"
-                direction="vertical"
-                initialSize={210}
-                minSize={110}
-                maxSize={520}
-                collapsible
+                direction="horizontal"
+                primaryPane="second"
+                initialSize={280}
+                minSize={180}
+                maxSize={560}
+                storageKey="graphql-variables"
+                collapsibleBoth
                 firstPane={
                   <div
                     style={{

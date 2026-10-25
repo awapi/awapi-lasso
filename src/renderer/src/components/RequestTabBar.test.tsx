@@ -65,6 +65,7 @@ describe('RequestTabBar', () => {
     const onCloseAllTabs = vi.fn();
     const onReopenClosedTab = vi.fn();
     const onReorderTabs = vi.fn();
+    const onGenerateCodeForTab = vi.fn();
 
     render(
       <RequestTabBar
@@ -78,8 +79,14 @@ describe('RequestTabBar', () => {
         onCloseAllTabs={onCloseAllTabs}
         onReopenClosedTab={onReopenClosedTab}
         onReorderTabs={onReorderTabs}
+        onGenerateCodeForTab={onGenerateCodeForTab}
       />,
     );
+
+    // Right-click on tab opens context menu -> Generate Code Snippet…
+    fireEvent.contextMenu(screen.getByTestId('request-tab-tab_1'));
+    fireEvent.click(screen.getByTestId('tab-ctx-generate-code-tab_1'));
+    expect(onGenerateCodeForTab).toHaveBeenCalledWith(sampleTabs[0]);
 
     // Right-click on tab opens context menu -> Close Others
     fireEvent.contextMenu(screen.getByTestId('request-tab-tab_1'));

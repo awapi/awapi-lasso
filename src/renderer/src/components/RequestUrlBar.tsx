@@ -1,10 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Edit2, Eye, EyeOff, Send, Square } from 'lucide-react';
+import { Code2, Edit2, Eye, EyeOff, Send, Square } from 'lucide-react';
 import {
   inspectVariablesInText,
   type InspectedVariableToken,
   type VariableInterpolationContext,
 } from '../../../shared/interpolation';
+import {
+  isCurlCommand,
+  parseCurlCommand,
+  type ParsedCurlCommand,
+} from '../../../shared/curlParser';
 import { extractPathParamNames } from '../../../shared/urlParams';
 import type { PathParamEntry } from '../../../shared/collectionSchema';
 import { useTheme } from '../context/ThemeContext';
@@ -34,6 +39,8 @@ export interface RequestUrlBarProps {
   onSend: () => void;
   onCancel?: () => void;
   onEditVariable?: (variableName: string, scope: string) => void;
+  onPasteCurl?: (parsed: ParsedCurlCommand) => void;
+  onOpenCodeSnippet?: () => void;
 }
 
 export function formatScopeLabel(source: InspectedVariableToken['source']): string {
@@ -68,6 +75,8 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
   onSend,
   onCancel,
   onEditVariable,
+  onPasteCurl,
+  onOpenCodeSnippet,
 }) => {
   const { colors, isLight } = useTheme();
   const [isCustomVerb, setIsCustomVerb] = useState<boolean>(
@@ -142,6 +151,22 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
     }
   };
 
+  const tryImportCurlText = (rawText: string): boolean => {
+    if (!isCurlCommand(rawText)) return false;
+    try {
+      const parsed = parseCurlCommand(rawText);
+      if (onPasteCurl) {
+        onPasteCurl(parsed);
+      } else {
+        onMethodChange(parsed.method, 'http');
+        onUrlChange(parsed.url);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <div
       data-testid="request-url-bar"
@@ -212,8 +237,18 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
           aria-label="Request URL"
           data-testid="url-input"
           value={url}
-          placeholder="https://{{baseUrl}}/v1/users/:id"
-          onChange={e => onUrlChange(e.target.value)}
+          placeholder="https://{{baseUrl}}/v1/users/:id (or paste a curl command)"
+          onPaste={e => {
+            const pasted = e.clipboardData?.getData('text');
+            if (pasted && tryImportCurlText(pasted)) {
+              e.preventDefault();
+            }
+          }}
+          onChange={e => {
+            const nextVal = e.target.value;
+            if (tryImportCurlText(nextVal)) return;
+            onUrlChange(nextVal);
+          }}
           onKeyDown={e => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -231,6 +266,31 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
             fontSize: 13,
           }}
         />
+
+        {onOpenCodeSnippet && (
+          <button
+            type="button"
+            data-testid="open-code-snippet-btn"
+            onClick={onOpenCodeSnippet}
+            title="Generate Code Snippet"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: `1px solid ${colors.border}`,
+              backgroundColor: colors.bgSecondary,
+              color: colors.textPrimary,
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            <Code2 size={14} />
+            Code
+          </button>
+        )}
 
         {/* Send / Cancel Button */}
         {isSending ? (

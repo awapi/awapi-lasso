@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="pageBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B" />
+      <stop offset="60%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#090D16" />
+    </linearGradient>
+    <linearGradient id="pageFold" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="100%" stop-color="#64748B" />
+    </linearGradient>
+    <linearGradient id="pageBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#64748B" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#334155" stop-opacity="0.35" />
+    </linearGradient>
+    <linearGradient id="lassoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDBA74" />
+      <stop offset="35%" stop-color="#F97316" />
+      <stop offset="100%" stop-color="#EF4444" />
+    </linearGradient>
+    <linearGradient id="boltGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7DD3FC" />
+      <stop offset="45%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#6366F1" />
+    </linearGradient>
+    <linearGradient id="badgeBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F97316" />
+      <stop offset="100%" stop-color="#EA580C" />
+    </linearGradient>
+    <filter id="docShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#000000" flood-opacity="0.42" />
+    </filter>
+    <filter id="emblemShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.38" />
+    </filter>
+  </defs>
+
+  <!-- Document Sheet with Folded Top-Right Corner -->
+  <g filter="url(#docShadow)">
+    <path d="M 220 84 L 644 84 L 844 284 L 844 884 Q 844 940 788 940 L 220 940 Q 164 940 164 884 L 164 140 Q 164 84 220 84 Z"
+      fill="url(#pageBg)" stroke="url(#pageBorder)" stroke-width="6" />
+    <path d="M 644 84 L 644 236 Q 644 284 692 284 L 844 284 Z"
+      fill="url(#pageFold)" opacity="0.92" />
+  </g>
+
+  <!-- Center Lasso + Bolt Emblem -->
+  <g filter="url(#emblemShadow)" transform="translate(0, -30)">
+    <ellipse cx="496" cy="480" rx="205" ry="136" transform="rotate(-14 496 480)"
+      fill="none" stroke="url(#lassoGradient)" stroke-width="46" stroke-linecap="round" />
+    <circle cx="614" cy="568" r="34" fill="url(#lassoGradient)" stroke="#FFF7ED" stroke-width="5" stroke-opacity="0.35" />
+    <path d="M 614 568 Q 660 650 582 726"
+      fill="none" stroke="url(#lassoGradient)" stroke-width="38" stroke-linecap="round" />
+    <path d="M 524 340 L 422 494 L 504 494 L 468 628 L 582 462 L 500 462 Z"
+      fill="url(#boltGradient)" stroke="#E0F2FE" stroke-width="4" stroke-linejoin="round" stroke-opacity="0.45" />
+  </g>
+
+  <!-- Bottom File Extension Pill Badge -->
+  <g filter="url(#emblemShadow)">
+    <rect x="272" y="758" width="464" height="116" rx="34" fill="url(#badgeBg)" />
+    <path d="M 0 64 L 22 0 L 36 0 L 58 64 L 44 64 L 39 49 L 19 49 L 14 64 Z M 22 38 L 36 38 L 29 15 Z" transform="translate(404.5, 784)" fill="#FFFFFF" fill-rule="evenodd" />
+    <path d="M 0 0 L 13 0 L 22 44 L 33 0 L 45 0 L 56 44 L 65 0 L 78 0 L 62 64 L 49 64 L 39 23 L 29 64 L 16 64 Z" transform="translate(470.5, 784)" fill="#FFFFFF" fill-rule="evenodd" />
+    <path d="M 32 0 L 45 0 L 45 43 Q 45 65 22 65 Q 3 65 0 46 L 13 44 Q 15 53 22 53 Q 32 53 32 42 Z" transform="translate(556.5, 784)" fill="#FFFFFF" fill-rule="evenodd" />
+  </g>
+</svg>

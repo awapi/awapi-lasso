@@ -5,14 +5,18 @@ import {
   dialog,
   shell,
   nativeTheme,
+  nativeImage,
   clipboard,
   Menu,
   safeStorage,
   type MenuItemConstructorOptions,
 } from 'electron';
 
-// Set app name BEFORE any imports that use app.getPath()
+// Set app name and AppUserModelId BEFORE any imports that use app.getPath()
 app.name = 'AwapiLasso';
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.awapi.awapilasso');
+}
 
 import * as path from 'path';
 import { join } from 'path';
@@ -20,6 +24,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { spawn } from 'child_process';
 import type { AwjcCollection } from '../shared/collectionSchema';
+import { importOpenApiSpec } from '../shared/openapiImporter';
 import { checkForUpdates } from './updater';
 import {
   COLLECTION_OPENED_FROM_OS_CHANNEL,
@@ -47,6 +52,8 @@ import {
   addRecentFile,
   clearRecentFiles,
   removeRecentFile,
+  getLastOpenDirectory,
+  setLastOpenDirectoryFromFile,
   saveSession,
   loadSession,
   type AppSettings,
@@ -136,12 +143,24 @@ const initialCollectionPaths = extractCollectionPathsFromArgv(
 if (initialCollectionPaths.length > 0) {
   osFileQueue.enqueue(initialCollectionPaths);
 } else if (isDev) {
-  const defaultSampleCollections = [
-    join(process.cwd(), 'samples', 'orders-and-inventory.awjc'),
-    join(process.cwd(), 'samples', 'public-apis.awjc'),
-  ].filter(p => fs.existsSync(p));
-  if (defaultSampleCollections.length > 0) {
-    osFileQueue.enqueue(defaultSampleCollections);
+  const existingSettings = loadAppSettings();
+  const existingSession = loadSession();
+  const hasRestorableSession =
+    (existingSettings.openCollectionPaths &&
+      existingSettings.openCollectionPaths.length > 0) ||
+    (existingSession !== null &&
+      ((existingSession.openCollectionPaths &&
+        existingSession.openCollectionPaths.length > 0) ||
+        existingSession.tabs.length > 0));
+
+  if (!hasRestorableSession) {
+    const defaultSampleCollections = [
+      join(process.cwd(), 'samples', 'orders-and-inventory.awjc'),
+      join(process.cwd(), 'samples', 'public-apis.awjc'),
+    ].filter(p => fs.existsSync(p));
+    if (defaultSampleCollections.length > 0) {
+      osFileQueue.enqueue(defaultSampleCollections);
+    }
   }
 }
 
@@ -204,12 +223,21 @@ function createWindow(): void {
   const isLight = settings.theme === 'light';
   nativeTheme.themeSource = isLight ? 'light' : 'dark';
 
+  // Window icon: used on Windows/Linux title bars, taskbars, and Alt-Tab switcher.
+  // macOS uses the icon embedded in the .app bundle (or app.dock.setIcon in dev).
+  const winIcon = join(
+    __dirname,
+    '../../build',
+    process.platform === 'win32' ? 'icon.ico' : 'icon.png',
+  );
+
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 960,
     minHeight: 600,
     title: 'AwapiLasso',
+    icon: winIcon,
     backgroundColor: isLight ? '#f8fafc' : '#0f172a',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -366,6 +394,41 @@ function rebuildAppMenu(): void {
         {
           label: 'Open Recent',
           submenu: recentSubmenu,
+        },
+        { type: 'separator' },
+        {
+          label: 'Import',
+          submenu: [
+            {
+              label: 'Import from OpenAPI / Swagger…',
+              click: () => {
+                const win = ensureWindow(mainWindow, () => {
+                  createWindow();
+                  return mainWindow!;
+                });
+                sendWhenLoaded(win, 'menu:importOpenApi');
+              },
+            },
+            {
+              label: 'Import from cURL…',
+              click: () => {
+                const win = ensureWindow(mainWindow, () => {
+                  createWindow();
+                  return mainWindow!;
+                });
+                sendWhenLoaded(win, 'menu:importCurl');
+              },
+            },
+            { type: 'separator' },
+            {
+              label: 'Import from Bruno (Coming Soon)',
+              enabled: false,
+            },
+            {
+              label: 'Import from Postman (Coming Soon)',
+              enabled: false,
+            },
+          ],
         },
         { type: 'separator' },
         {
@@ -555,6 +618,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('dialog:openCollectionFile', async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
       title: 'Open AwapiLasso Collection',
+      defaultPath: getLastOpenDirectory(),
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'AwapiLasso Collections (*.awjc, *.awj)', extensions: ['awjc', 'awj'] },
@@ -565,6 +629,7 @@ function registerIpcHandlers(): void {
     for (const fp of result.filePaths) {
       addRecentFile(fp);
     }
+    setLastOpenDirectoryFromFile(result.filePaths[0]);
     rebuildAppMenu();
     return result.filePaths;
   });
@@ -572,6 +637,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('collection:openDialog', async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
       title: 'Open AwapiLasso Collection',
+      defaultPath: getLastOpenDirectory(),
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: 'AwapiLasso Collections (*.awjc, *.awj)', extensions: ['awjc', 'awj'] },
@@ -579,6 +645,7 @@ function registerIpcHandlers(): void {
       ],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    setLastOpenDirectoryFromFile(result.filePaths[0]);
 
     const serviceDeps = buildCollectionFileServiceDeps();
     const opened: OpenedCollectionPayload[] = [];
@@ -599,6 +666,30 @@ function registerIpcHandlers(): void {
   ipcMain.handle('collection:openPath', (_event, filePath: string) => {
     const serviceDeps = buildCollectionFileServiceDeps();
     return openCollectionFromFile(filePath, serviceDeps);
+  });
+
+  ipcMain.handle('collection:importOpenApiDialog', async () => {
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+      title: 'Import OpenAPI 3.x / Swagger 2.0 Specification',
+      defaultPath: getLastOpenDirectory(),
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'OpenAPI / Swagger (*.yaml, *.yml, *.json)',
+          extensions: ['yaml', 'yml', 'json'],
+        },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const specPath = result.filePaths[0];
+    setLastOpenDirectoryFromFile(specPath);
+    const rawContent = fs.readFileSync(specPath, 'utf-8');
+    const collection = importOpenApiSpec(rawContent);
+    return {
+      sourcePath: specPath,
+      collection,
+    };
   });
 
   ipcMain.handle(
@@ -622,17 +713,25 @@ function registerIpcHandlers(): void {
         format?: 'yaml' | 'json';
       },
     ) => {
+      const defaultFileName = `${options.collection.metadata.name.replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase() || 'collection'}.awjc`;
+      const lastDir = getLastOpenDirectory();
+      const computedDefaultPath =
+        options.defaultPath && path.isAbsolute(options.defaultPath)
+          ? options.defaultPath
+          : lastDir
+            ? join(lastDir, options.defaultPath || defaultFileName)
+            : options.defaultPath || defaultFileName;
+
       const result = await dialog.showSaveDialog(mainWindow ?? undefined!, {
         title: 'Save AwapiLasso Collection',
-        defaultPath:
-          options.defaultPath ||
-          `${options.collection.metadata.name.replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase() || 'collection'}.awjc`,
+        defaultPath: computedDefaultPath,
         filters: [
           { name: 'AwapiLasso Collection (*.awjc)', extensions: ['awjc'] },
           { name: 'AwapiLasso Collection Alias (*.awj)', extensions: ['awj'] },
         ],
       });
       if (result.canceled || !result.filePath) return null;
+      setLastOpenDirectoryFromFile(result.filePath);
       collectionWatchers.markSelfSaved(result.filePath);
       return saveCollectionToFile(
         {
@@ -726,6 +825,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('graphql:openSchemaFileDialog', async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
       title: 'Load GraphQL Schema (SDL or Introspection JSON)',
+      defaultPath: getLastOpenDirectory(),
       properties: ['openFile'],
       filters: [
         {
@@ -736,6 +836,7 @@ function registerIpcHandlers(): void {
       ],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    setLastOpenDirectoryFromFile(result.filePaths[0]);
     return result.filePaths[0];
   });
 
@@ -751,6 +852,16 @@ function registerIpcHandlers(): void {
 if (gotSingleInstanceLock) {
   void app.whenReady().then(() => {
     isAppReady = true;
+
+    // In dev on macOS, the bundle icon is Electron's default. Override the
+    // dock icon so the app shows our brand while running `pnpm dev`.
+    if (process.platform === 'darwin' && isDev && app.dock) {
+      const dockImg = nativeImage.createFromPath(join(__dirname, '../../build/icon.png'));
+      if (!dockImg.isEmpty()) {
+        app.dock.setIcon(dockImg);
+      }
+    }
+
     seedDefaultDevCollectionSecrets();
     registerIpcHandlers();
     rebuildAppMenu();

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, RotateCcw, X } from 'lucide-react';
+import { Code2, Plus, RotateCcw, X } from 'lucide-react';
 import type { RequestItem } from '../../../shared/collectionSchema';
 import { getMethodBadgeColor, getMethodBadgeLabel } from './CollectionSidebar';
 import { useTheme } from '../context/ThemeContext';
@@ -23,6 +23,7 @@ export interface RequestTabBarProps {
   onCloseAllTabs: () => void;
   onReopenClosedTab: () => void;
   onReorderTabs: (fromIndex: number, toIndex: number) => void;
+  onGenerateCodeForTab?: (tab: RequestWorkspaceTab) => void;
 }
 
 export const RequestTabBar: React.FC<RequestTabBarProps> = ({
@@ -36,6 +37,7 @@ export const RequestTabBar: React.FC<RequestTabBarProps> = ({
   onCloseAllTabs,
   onReopenClosedTab,
   onReorderTabs,
+  onGenerateCodeForTab,
 }) => {
   const { colors, isLight } = useTheme();
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -267,6 +269,19 @@ export const RequestTabBar: React.FC<RequestTabBarProps> = ({
                   gap: 2,
                 }}
               >
+                {onGenerateCodeForTab && (
+                  <button
+                    type="button"
+                    data-testid={`tab-ctx-generate-code-${tab.id}`}
+                    onClick={() => {
+                      setMenuState(null);
+                      onGenerateCodeForTab(tab);
+                    }}
+                    style={{ ...ctxBtnStyle(colors), gap: 6 }}
+                  >
+                    <Code2 size={12} /> Generate Code Snippet…
+                  </button>
+                )}
                 <button
                   type="button"
                   data-testid={`tab-ctx-close-${tab.id}`}

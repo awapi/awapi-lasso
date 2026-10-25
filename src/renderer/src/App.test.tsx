@@ -13,6 +13,7 @@ describe('App shell', () => {
       openCollectionDialog: vi.fn().mockResolvedValue(['/Users/me/apis/payments.awjc']),
       openCollectionsWithDialog: vi.fn().mockResolvedValue(null),
       openCollectionFromPath: vi.fn(),
+      importOpenApiWithDialog: vi.fn().mockResolvedValue(null),
       saveCollection: vi.fn(),
       saveCollectionAs: vi.fn().mockResolvedValue(null),
       watchCollectionPaths: vi.fn().mockResolvedValue(undefined),
@@ -76,6 +77,8 @@ describe('App shell', () => {
       onMenuSaveCollection: vi.fn(() => () => {}),
       onMenuSaveCollectionAs: vi.fn(() => () => {}),
       onMenuOpenSettings: vi.fn(() => () => {}),
+      onMenuImportCurl: vi.fn(() => () => {}),
+      onMenuImportOpenApi: vi.fn(() => () => {}),
     };
   });
 
@@ -98,6 +101,23 @@ describe('App shell', () => {
       expect(screen.getByTestId('collection-list')).toHaveTextContent(
         '/Users/me/apis/payments.awjc',
       );
+    });
+
+    // Can remove/close the collection via the collection context menu
+    const colMenuBtn = screen
+      .getAllByRole('button')
+      .find(btn => btn.getAttribute('data-testid')?.startsWith('collection-menu-btn-'));
+    expect(colMenuBtn).toBeDefined();
+    fireEvent.click(colMenuBtn!);
+
+    const closeColMenuItem = screen
+      .getAllByRole('button')
+      .find(btn => btn.getAttribute('data-testid')?.startsWith('col-menu-close-'));
+    expect(closeColMenuItem).toBeDefined();
+    fireEvent.click(closeColMenuItem!);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('empty-collections-msg')).toBeInTheDocument();
     });
   });
 
@@ -256,5 +276,188 @@ describe('App shell', () => {
     // Reopening the closed tab restores the original saved URL
     fireEvent.click(screen.getByTestId('reopen-closed-tab-btn'));
     expect(screen.getByTestId('url-input')).toHaveValue('http://127.0.0.1:8080/v1/health');
+  });
+
+  it('opens CodeSnippetModal from tab context menu, sidebar request context menu, and URL bar, plus CollectionRunnerModal and Import cURL modal', () => {
+    render(<App />);
+
+    // 1. Open Code Snippet Generator modal from the tab's right-click context menu
+    fireEvent.contextMenu(screen.getByTestId('request-tab-tab_initial'));
+    fireEvent.click(screen.getByTestId('tab-ctx-generate-code-tab_initial'));
+    expect(screen.getByTestId('code-snippet-modal')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('close-code-snippet-modal-btn'));
+    expect(screen.queryByTestId('code-snippet-modal')).not.toBeInTheDocument();
+
+    // 2. Open Code Snippet Generator modal from a request item in the left sidebar tree
+    fireEvent.click(screen.getByTestId('sidebar-new-collection-btn'));
+    const sampleTreeItemMenu = screen
+      .getAllByRole('button')
+      .find(btn => btn.getAttribute('data-testid')?.startsWith('item-menu-btn-'));
+    expect(sampleTreeItemMenu).toBeDefined();
+    fireEvent.click(sampleTreeItemMenu!);
+    const generateCodeMenuItem = screen
+      .getAllByRole('button')
+      .find(btn => btn.getAttribute('data-testid')?.startsWith('menu-generate-code-'));
+    expect(generateCodeMenuItem).toBeDefined();
+    fireEvent.click(generateCodeMenuItem!);
+    expect(screen.getByTestId('code-snippet-modal')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('close-code-snippet-modal-btn'));
+    expect(screen.queryByTestId('code-snippet-modal')).not.toBeInTheDocument();
+
+    // 3. Open Code Snippet Generator modal from URL bar button
+    fireEvent.click(screen.getByTestId('open-code-snippet-btn'));
+    expect(screen.getByTestId('code-snippet-modal')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('close-code-snippet-modal-btn'));
+    expect(screen.queryByTestId('code-snippet-modal')).not.toBeInTheDocument();
+
+    // Open Collection Runner modal from top toolbar
+    fireEvent.click(screen.getByTestId('open-runner-btn'));
+    expect(screen.getByTestId('collection-runner-modal')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('close-runner-modal-btn'));
+    expect(screen.queryByTestId('collection-runner-modal')).not.toBeInTheDocument();
+
+    // Import cURL command via toolbar Import dropdown menu into a new request tab
+    fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    fireEvent.click(screen.getByTestId('open-import-curl-btn'));
+    expect(screen.getByTestId('import-curl-modal')).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('import-curl-textarea'), {
+      target: {
+        value: 'curl -X POST https://api.example.com/v1/payments -d \'{"amount":500}\'',
+      },
+    });
+    fireEvent.click(screen.getByTestId('confirm-import-curl-btn'));
+
+    expect(screen.queryByTestId('import-curl-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('url-input')).toHaveValue('https://api.example.com/v1/payments');
+    expect(screen.getByTestId('method-select')).toHaveValue('POST');
+  });
+
+  it('restores loaded collections, open tabs, unsaved drafts, and active environment from saved session on launch and persists changes', async () => {
+    window.electronAPI.openCollectionFromPath = vi.fn().mockResolvedValue({
+      filePath: '/Users/me/apis/orders.awjc',
+      format: 'yaml',
+      collection: {
+        awjcVersion: '1.0',
+        metadata: { id: 'col_orders', name: 'Orders API' },
+        activeEnvironment: 'dev',
+        environments: [
+          { name: 'dev', variables: [] },
+          { name: 'prod', variables: [] },
+        ],
+        items: [
+          {
+            kind: 'request',
+            id: 'req_list_orders',
+            name: 'List Orders',
+            protocol: 'http',
+            method: 'GET',
+            url: 'https://api.example.com/v1/orders',
+            headers: [],
+            queryParams: [],
+            pathParams: [],
+          },
+        ],
+      },
+    });
+
+    window.electronAPI.loadSession = vi.fn().mockResolvedValue({
+      activeTabId: 'tab_draft_1',
+      activeCollectionPath: '/Users/me/apis/orders.awjc',
+      activeEnvironmentByCollection: { '/Users/me/apis/orders.awjc': 'prod' },
+      openCollectionPaths: ['/Users/me/apis/orders.awjc'],
+      activeConfigTab: 'headers',
+      splitLayout: 'horizontal',
+      tabs: [
+        {
+          id: 'tab_saved_1',
+          title: 'List Orders',
+          collectionPath: '/Users/me/apis/orders.awjc',
+          requestId: 'req_list_orders',
+          isDirty: false,
+        },
+        {
+          id: 'tab_draft_1',
+          title: 'Create Order Draft',
+          collectionPath: '/Users/me/apis/orders.awjc',
+          requestId: 'req_list_orders',
+          isDirty: true,
+          draftJson: JSON.stringify({
+            kind: 'request',
+            id: 'req_list_orders',
+            name: 'Create Order Draft',
+            protocol: 'http',
+            method: 'POST',
+            url: 'https://api.example.com/v1/orders/draft',
+          }),
+        },
+      ],
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.electronAPI.loadSession).toHaveBeenCalled();
+      expect(screen.getByTestId('collection-list')).toHaveTextContent('/Users/me/apis/orders.awjc');
+      expect(screen.getByTestId('request-tab-tab_saved_1')).toBeInTheDocument();
+      expect(screen.getByTestId('request-tab-tab_draft_1')).toBeInTheDocument();
+      expect(screen.getByTestId('tab-dirty-tab_draft_1')).toBeInTheDocument();
+      expect(screen.getByTestId('url-input')).toHaveValue('https://api.example.com/v1/orders/draft');
+      expect(screen.getByTestId('method-select')).toHaveValue('POST');
+    });
+
+    // Updating the active request should persist the updated session via saveSession
+    fireEvent.change(screen.getByTestId('url-input'), {
+      target: { value: 'https://api.example.com/v1/orders/updated' },
+    });
+
+    await waitFor(() => {
+      expect(window.electronAPI.saveSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          activeTabId: 'tab_draft_1',
+          activeCollectionPath: '/Users/me/apis/orders.awjc',
+          openCollectionPaths: ['/Users/me/apis/orders.awjc'],
+          activeEnvironmentByCollection: { '/Users/me/apis/orders.awjc': 'prod' },
+        }),
+      );
+    });
+  });
+
+  it('prompts for confirmation (Save & Close, Don’t Save, Cancel) when closing an unsaved collection or a collection with dirty requests', async () => {
+    render(<App />);
+
+    // Create a new collection (starts as isDirty: true)
+    fireEvent.click(screen.getByTestId('sidebar-new-collection-btn'));
+    expect(screen.getByTestId('collection-list')).toHaveTextContent('New Collection 1');
+
+    const openColMenu = () => {
+      const colMenuBtn = screen
+        .getAllByRole('button')
+        .find(btn => btn.getAttribute('data-testid')?.startsWith('collection-menu-btn-'));
+      expect(colMenuBtn).toBeDefined();
+      fireEvent.click(colMenuBtn!);
+      const closeBtn = screen
+        .getAllByRole('button')
+        .find(btn => btn.getAttribute('data-testid')?.startsWith('col-menu-close-'));
+      expect(closeBtn).toBeDefined();
+      fireEvent.click(closeBtn!);
+    };
+
+    // Attempt to close dirty collection -> confirmation modal appears
+    openColMenu();
+    expect(screen.getByTestId('unsaved-collection-close-modal')).toBeInTheDocument();
+
+    // Cancel keeps the collection open
+    fireEvent.click(screen.getByTestId('unsaved-collection-modal-cancel-btn'));
+    expect(screen.queryByTestId('unsaved-collection-close-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('collection-list')).toHaveTextContent('New Collection 1');
+
+    // Reopen confirmation and click Save & Close -> saves collection and removes it
+    openColMenu();
+    fireEvent.click(screen.getByTestId('unsaved-collection-modal-save-btn'));
+
+    await waitFor(() => {
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('empty-collections-msg')).toBeInTheDocument();
+    });
   });
 });

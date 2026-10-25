@@ -1,24 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#1E293B" />
-      <stop offset="100%" stop-color="#0F172A" />
+      <stop offset="50%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#090D16" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="46%" r="48%">
+      <stop offset="0%" stop-color="#F97316" stop-opacity="0.22" />
+      <stop offset="55%" stop-color="#6366F1" stop-opacity="0.10" />
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#1E293B" stop-opacity="0.2" />
     </linearGradient>
     <linearGradient id="lassoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F97316" />
+      <stop offset="0%" stop-color="#FDBA74" />
+      <stop offset="35%" stop-color="#F97316" />
       <stop offset="100%" stop-color="#EF4444" />
     </linearGradient>
     <linearGradient id="boltGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="0%" stop-color="#7DD3FC" />
+      <stop offset="45%" stop-color="#38BDF8" />
       <stop offset="100%" stop-color="#6366F1" />
     </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.38" />
+    </filter>
   </defs>
-  <rect width="1024" height="1024" rx="220" fill="url(#bg)" />
-  <!-- Lasso Loop -->
-  <ellipse cx="512" cy="440" rx="280" ry="185" transform="rotate(-14 512 440)" fill="none" stroke="url(#lassoGradient)" stroke-width="58" stroke-linecap="round" />
-  <!-- Lasso Knot & Tail -->
-  <circle cx="670" cy="560" r="40" fill="url(#lassoGradient)" />
-  <path d="M 670 560 Q 730 680 620 790" fill="none" stroke="url(#lassoGradient)" stroke-width="48" stroke-linecap="round" />
+
+  <!-- Rounded square background (macOS-friendly squircle look with 64px safe margin) -->
+  <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#bg)" stroke="url(#borderGrad)" stroke-width="6" />
+  <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#glow)" />
+
+  <!-- Lasso Loop, Knot & Tail -->
+  <g filter="url(#shadow)">
+    <ellipse cx="504" cy="456" rx="276" ry="184" transform="rotate(-14 504 456)" fill="none" stroke="url(#lassoGradient)" stroke-width="60" stroke-linecap="round" />
+    <circle cx="662" cy="574" r="44" fill="url(#lassoGradient)" stroke="#FFF7ED" stroke-width="6" stroke-opacity="0.35" />
+    <path d="M 662 574 Q 724 692 618 796" fill="none" stroke="url(#lassoGradient)" stroke-width="50" stroke-linecap="round" />
+  </g>
+
   <!-- API Bolt / Signal -->
-  <path d="M 545 270 L 415 470 L 520 470 L 475 645 L 620 430 L 515 430 Z" fill="url(#boltGradient)" />
+  <g filter="url(#shadow)">
+    <path d="M 542 268 L 406 474 L 516 474 L 468 654 L 620 432 L 510 432 Z" fill="url(#boltGradient)" stroke="#E0F2FE" stroke-width="5" stroke-linejoin="round" stroke-opacity="0.45" />
+  </g>
 </svg>

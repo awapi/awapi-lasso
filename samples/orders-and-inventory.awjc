@@ -5,7 +5,7 @@ metadata:
   name: Orders & Inventory API
   description: REST and GraphQL endpoints for the Orders & Inventory service
   createdAt: 2026-10-24T12:00:00Z
-  updatedAt: 2026-10-25T03:49:24.219Z
+  updatedAt: 2026-10-25T23:08:09.073Z
 defaults:
   baseUrl: "{{baseUrl}}"
   timeoutMs: 30000
@@ -655,4 +655,3 @@ items:
             path: $.data.inventorySummaryByGroup[0].count
             operator: greaterThan
             expected: 0
-

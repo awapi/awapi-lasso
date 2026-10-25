@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import * as fs from 'fs';
 
 export const MAX_RECENT_FILES = 15;
@@ -22,6 +22,8 @@ export interface AppSettings {
   recentFiles?: string[];
   /** Currently open collection file paths in the sidebar workspace. */
   openCollectionPaths?: string[];
+  /** Last directory used in open/import/save file dialogs. */
+  lastOpenDirectory?: string | null;
 }
 
 export interface SessionTabState {
@@ -37,6 +39,9 @@ export interface SessionState {
   activeTabId: string | null;
   activeCollectionPath?: string | null;
   activeEnvironmentByCollection?: Record<string, string | null>;
+  openCollectionPaths?: string[];
+  activeConfigTab?: 'params' | 'headers' | 'auth' | 'body' | 'captures' | 'assertions';
+  splitLayout?: 'vertical' | 'horizontal';
   tabs: SessionTabState[];
 }
 
@@ -67,6 +72,10 @@ export function loadAppSettings(): AppSettings {
         openCollectionPaths: Array.isArray(parsed.openCollectionPaths)
           ? parsed.openCollectionPaths
           : [],
+        lastOpenDirectory:
+          typeof parsed.lastOpenDirectory === 'string' && parsed.lastOpenDirectory.length > 0
+            ? parsed.lastOpenDirectory
+            : null,
       };
     }
   } catch {
@@ -81,6 +90,7 @@ export function loadAppSettings(): AppSettings {
     maxRedirects: 10,
     recentFiles: [],
     openCollectionPaths: [],
+    lastOpenDirectory: null,
   };
 }
 
@@ -114,8 +124,42 @@ export function addRecentFile(filePath: string): string[] {
   if (!filePath || typeof filePath !== 'string') return getRecentFiles();
   const existing = getRecentFiles().filter(p => p !== filePath);
   const updated = [filePath, ...existing].slice(0, MAX_RECENT_FILES);
-  saveAppSettings({ recentFiles: updated });
+  const dir = dirname(filePath);
+  saveAppSettings({
+    recentFiles: updated,
+    ...(dir && dir !== '.' ? { lastOpenDirectory: dir } : {}),
+  });
   return updated;
+}
+
+/**
+ * Return the last directory used in open/import/save file dialogs, or fall back to
+ * the directory of the most recent file if available.
+ */
+export function getLastOpenDirectory(): string | undefined {
+  const settings = loadAppSettings();
+  if (settings.lastOpenDirectory && fs.existsSync(settings.lastOpenDirectory)) {
+    return settings.lastOpenDirectory;
+  }
+  if (Array.isArray(settings.recentFiles) && settings.recentFiles.length > 0) {
+    const recentDir = dirname(settings.recentFiles[0]);
+    if (recentDir && recentDir !== '.' && fs.existsSync(recentDir)) {
+      return recentDir;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Record the directory of a newly opened, imported, or saved file path so subsequent
+ * dialogs start in the same folder.
+ */
+export function setLastOpenDirectoryFromFile(filePath: string): string | null {
+  if (!filePath || typeof filePath !== 'string') return loadAppSettings().lastOpenDirectory ?? null;
+  const dir = dirname(filePath);
+  if (!dir || dir === '.') return loadAppSettings().lastOpenDirectory ?? null;
+  saveAppSettings({ lastOpenDirectory: dir });
+  return dir;
 }
 
 /** Clear all recently opened/saved collection file paths. */
@@ -194,6 +238,11 @@ export function saveSession(sessionData: SessionState): boolean {
       activeTabId: sessionData.activeTabId ?? null,
       activeCollectionPath: sessionData.activeCollectionPath ?? null,
       activeEnvironmentByCollection: sessionData.activeEnvironmentByCollection ?? {},
+      openCollectionPaths: Array.isArray(sessionData.openCollectionPaths)
+        ? sessionData.openCollectionPaths
+        : [],
+      ...(sessionData.activeConfigTab ? { activeConfigTab: sessionData.activeConfigTab } : {}),
+      ...(sessionData.splitLayout ? { splitLayout: sessionData.splitLayout } : {}),
       tabs: tabs.map(tab => ({
         id: tab.id,
         title: tab.title,
@@ -204,6 +253,9 @@ export function saveSession(sessionData: SessionState): boolean {
     };
 
     fs.writeFileSync(getSessionMetadataPath(), JSON.stringify(metadata, null, 2), 'utf-8');
+    if (Array.isArray(sessionData.openCollectionPaths)) {
+      saveAppSettings({ openCollectionPaths: sessionData.openCollectionPaths });
+    }
     return true;
   } catch (error) {
     console.error('Failed to save session:', error);
@@ -241,6 +293,11 @@ export function loadSession(): SessionState | null {
       activeTabId: raw.activeTabId ?? null,
       activeCollectionPath: raw.activeCollectionPath ?? null,
       activeEnvironmentByCollection: raw.activeEnvironmentByCollection ?? {},
+      openCollectionPaths: Array.isArray(raw.openCollectionPaths)
+        ? raw.openCollectionPaths
+        : [],
+      ...(raw.activeConfigTab ? { activeConfigTab: raw.activeConfigTab } : {}),
+      ...(raw.splitLayout ? { splitLayout: raw.splitLayout } : {}),
       tabs,
     };
   } catch (error) {

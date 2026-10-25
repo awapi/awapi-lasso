@@ -46,6 +46,7 @@ Artifacts are written to `release/`.
     "productName": "AwapiLasso",
     "publish": ["github"],
     "directories": {
+      "buildResources": "build",
       "output": "release"
     },
     "fileAssociations": [
@@ -55,7 +56,8 @@ Artifacts are written to `release/`.
         "description": "AwapiLasso API Collection File",
         "mimeType": "application/x-awapi-lasso-collection",
         "role": "Editor",
-        "icon": "build/icon"
+        "rank": "Owner",
+        "icon": "build/awjc"
       },
       {
         "ext": "awj",
@@ -63,7 +65,8 @@ Artifacts are written to `release/`.
         "description": "AwapiLasso API Collection File",
         "mimeType": "application/x-awapi-lasso",
         "role": "Editor",
-        "icon": "build/icon"
+        "rank": "Owner",
+        "icon": "build/awj"
       }
     ],
     "mac": {
@@ -74,6 +77,9 @@ Artifacts are written to `release/`.
       "gatekeeperAssess": false,
       "identity": "-"
     },
+    "dmg": {
+      "icon": "build/icon.icns"
+    },
     "win": {
       "icon": "build/icon.ico",
       "target": ["nsis", "msi"]
@@ -82,7 +88,10 @@ Artifacts are written to `release/`.
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "${productName}-${version}-${arch}-setup.${ext}"
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     },
     "msi": {
       "oneClick": false,
@@ -91,7 +100,7 @@ Artifacts are written to `release/`.
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "linux": {
-      "icon": "build/icon-512x512.png",
+      "icon": "build/icons",
       "category": "Development",
       "target": ["AppImage", "deb"],
       "artifactName": "${productName}-${version}-${arch}.${ext}"

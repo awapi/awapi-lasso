@@ -35,6 +35,13 @@ export const electronAPI = {
   openCollectionFromPath: (filePath: string) =>
     ipcRenderer.invoke('collection:openPath', filePath) as Promise<OpenedCollectionPayload>,
 
+  /** Opens a native dialog to pick an OpenAPI 3.x / Swagger 2.0 YAML/JSON file and imports it as a collection. */
+  importOpenApiWithDialog: () =>
+    ipcRenderer.invoke('collection:importOpenApiDialog') as Promise<{
+      sourcePath: string;
+      collection: AwjcCollection;
+    } | null>,
+
   /** Saves a collection to `filePath` (stripping `secret: true` values into OS Keychain). */
   saveCollection: (options: {
     filePath: string;
@@ -199,6 +206,20 @@ export const electronAPI = {
     ipcRenderer.on('menu:openSettings', listener);
     return () => {
       ipcRenderer.removeListener('menu:openSettings', listener);
+    };
+  },
+  onMenuImportCurl: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('menu:importCurl', listener);
+    return () => {
+      ipcRenderer.removeListener('menu:importCurl', listener);
+    };
+  },
+  onMenuImportOpenApi: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('menu:importOpenApi', listener);
+    return () => {
+      ipcRenderer.removeListener('menu:importOpenApi', listener);
     };
   },
 };

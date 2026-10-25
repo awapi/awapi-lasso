@@ -1,12 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  FolderOpen,
-  KeyRound,
+  ChevronDown,
+  FileCode2,
   Layers,
   Moon,
+  Play,
   Settings,
   Sun,
   Terminal,
+  Upload,
   Columns,
   Rows,
 } from 'lucide-react';
@@ -20,9 +22,12 @@ export interface TopToolbarProps {
   activeEnvironmentName?: string | null;
   onSelectEnvironment: (environmentName: string) => void;
   onOpenEnvironmentManager: () => void;
-  onOpenOAuth2Manager: () => void;
+  onOpenOAuth2Manager?: () => void;
   onOpenPreferences: () => void;
-  onOpenCollectionDialog: () => void;
+  onOpenCollectionDialog?: () => void;
+  onOpenCollectionRunner?: () => void;
+  onOpenImportCurl?: () => void;
+  onOpenImportOpenApi?: () => void;
   cliEnabled?: boolean;
   splitLayout?: 'vertical' | 'horizontal';
   onToggleSplitLayout?: () => void;
@@ -35,17 +40,44 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   activeEnvironmentName,
   onSelectEnvironment,
   onOpenEnvironmentManager,
-  onOpenOAuth2Manager,
   onOpenPreferences,
-  onOpenCollectionDialog,
+  onOpenCollectionRunner,
+  onOpenImportCurl,
+  onOpenImportOpenApi,
   cliEnabled = false,
   splitLayout = 'vertical',
   onToggleSplitLayout,
 }) => {
   const { isLight, colors, toggleTheme } = useTheme();
   const envSelectRef = useRef<HTMLSelectElement>(null);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
 
   const activeEnv = environments.find(env => env.name === activeEnvironmentName) ?? environments[0];
+
+  useEffect(() => {
+    if (!importMenuOpen) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-toolbar-import-menu], [data-toolbar-import-trigger]')) {
+        return;
+      }
+      setImportMenuOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setImportMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [importMenuOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -190,41 +222,181 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           </select>
         </div>
 
-        {/* Environments & Variables Manager Button */}
+        {/* Environments, Variables & Auth Manager Button */}
         <button
           type="button"
           data-testid="open-env-manager-btn"
           onClick={onOpenEnvironmentManager}
-          title="Environments, Variables & Secrets Manager"
+          title="Environments, Variables & Auth Profiles Manager"
           style={buttonStyle}
         >
           <Layers size={13} />
           Environments
         </button>
 
-        {/* OAuth 2.0 Token Manager Button */}
-        <button
-          type="button"
-          data-testid="open-oauth2-manager-btn"
-          onClick={onOpenOAuth2Manager}
-          title="OAuth 2.0 Token Manager"
-          style={buttonStyle}
-        >
-          <KeyRound size={13} />
-          OAuth 2.0
-        </button>
+        {/* Collection Runner Button */}
+        {onOpenCollectionRunner && (
+          <button
+            type="button"
+            data-testid="open-runner-btn"
+            onClick={onOpenCollectionRunner}
+            title="Run Collection or Folder Sequentially"
+            style={buttonStyle}
+          >
+            <Play size={13} />
+            Runner
+          </button>
+        )}
 
-        {/* Open .awjc Collection Button */}
-        <button
-          type="button"
-          data-testid="open-collection-btn"
-          onClick={onOpenCollectionDialog}
-          title="Open .awjc / .awj Collection (Cmd/Ctrl+O)"
-          style={buttonStyle}
-        >
-          <FolderOpen size={13} />
-          Open .awjc
-        </button>
+        {/* Unified Import Menu Button */}
+        {(onOpenImportOpenApi || onOpenImportCurl) && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <button
+              type="button"
+              data-toolbar-import-trigger="true"
+              data-testid="toolbar-import-btn"
+              onClick={() => setImportMenuOpen(prev => !prev)}
+              title="Import API Spec or Request"
+              style={buttonStyle}
+            >
+              <Upload size={13} />
+              Import
+              <ChevronDown size={12} />
+            </button>
+
+            {importMenuOpen && (
+              <div
+                data-toolbar-import-menu="true"
+                data-testid="toolbar-import-menu"
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 'calc(100% + 4px)',
+                  zIndex: 50,
+                  backgroundColor: colors.bgSecondary,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 6,
+                  padding: 4,
+                  minWidth: 230,
+                  boxShadow: '0 8px 20px rgba(0,0,0,0.35)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }}
+              >
+                {onOpenImportOpenApi && (
+                  <button
+                    type="button"
+                    data-testid="import-openapi-btn"
+                    onClick={() => {
+                      setImportMenuOpen(false);
+                      onOpenImportOpenApi();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      border: 'none',
+                      background: 'transparent',
+                      color: colors.textPrimary,
+                      fontSize: 12,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FileCode2 size={13} />
+                    Import from OpenAPI / Swagger…
+                  </button>
+                )}
+
+                {onOpenImportCurl && (
+                  <button
+                    type="button"
+                    data-testid="open-import-curl-btn"
+                    onClick={() => {
+                      setImportMenuOpen(false);
+                      onOpenImportCurl();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      border: 'none',
+                      background: 'transparent',
+                      color: colors.textPrimary,
+                      fontSize: 12,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Terminal size={13} />
+                    Import from cURL…
+                  </button>
+                )}
+
+                <div
+                  style={{
+                    height: 1,
+                    backgroundColor: colors.border,
+                    margin: '2px 4px',
+                  }}
+                />
+
+                <button
+                  type="button"
+                  data-testid="import-bruno-btn"
+                  disabled
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: 'none',
+                    background: 'transparent',
+                    color: colors.textSecondary,
+                    fontSize: 12,
+                    textAlign: 'left',
+                    opacity: 0.6,
+                    cursor: 'not-allowed',
+                  }}
+                >
+                  <span>Import from Bruno</span>
+                  <span style={{ fontSize: 10 }}>Soon</span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="import-postman-btn"
+                  disabled
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: 'none',
+                    background: 'transparent',
+                    color: colors.textSecondary,
+                    fontSize: 12,
+                    textAlign: 'left',
+                    opacity: 0.6,
+                    cursor: 'not-allowed',
+                  }}
+                >
+                  <span>Import from Postman</span>
+                  <span style={{ fontSize: 10 }}>Soon</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Request/Response Split Layout Toggle */}
         {onToggleSplitLayout && (

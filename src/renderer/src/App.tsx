@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createDefaultFolder,
   createDefaultGraphQLRequest,
@@ -34,7 +34,10 @@ import {
   EnvironmentManagerModal,
   type EnvironmentModalTab,
 } from './components/EnvironmentManagerModal';
+import { CodeSnippetModal } from './components/CodeSnippetModal';
+import { CollectionRunnerModal } from './components/CollectionRunnerModal';
 import { ResponseInspector } from './components/ResponseInspector';
+import { curlToRequestItem } from '../../shared/curlParser';
 
 type RequestBuilderSectionTab =
   | 'params'
@@ -126,6 +129,9 @@ const WorkspaceShell: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState<string | null>('tab_initial');
   const [closedTabs, setClosedTabs] = useState<RequestWorkspaceTab[]>([]);
   const [pendingCloseTabIds, setPendingCloseTabIds] = useState<string[] | null>(null);
+  const [pendingCloseCollectionPath, setPendingCloseCollectionPath] = useState<string | null>(
+    null,
+  );
   const [activeConfigTab, setActiveConfigTab] = useState<RequestBuilderSectionTab>('params');
 
   const [historyEntries, setHistoryEntries] = useState<RequestHistoryEntry[]>([]);
@@ -146,8 +152,17 @@ const WorkspaceShell: React.FC = () => {
   const [splitLayout, setSplitLayout] = useState<'vertical' | 'horizontal'>('vertical');
   const [envModalOpen, setEnvModalOpen] = useState<boolean>(false);
   const [envModalTab, setEnvModalTab] = useState<EnvironmentModalTab>('environments');
+  const [codeSnippetModalOpen, setCodeSnippetModalOpen] = useState<boolean>(false);
+  const [codeSnippetTargetRequest, setCodeSnippetTargetRequest] =
+    useState<RequestItem | null>(null);
+  const [runnerModalOpen, setRunnerModalOpen] = useState<boolean>(false);
+  const [runnerInitialFolderId, setRunnerInitialFolderId] = useState<string | null>(null);
+  const [importCurlModalOpen, setImportCurlModalOpen] = useState<boolean>(false);
+  const [importCurlDraft, setImportCurlDraft] = useState<string>('');
+  const [importCurlError, setImportCurlError] = useState<string | null>(null);
+  const isSessionHydratedRef = useRef<boolean>(false);
 
-  const addCollectionByPath = useCallback(async (filePath: string) => {
+  const loadCollectionFromDisk = useCallback(async (filePath: string): Promise<AwjcCollection> => {
     const api = window.electronAPI;
     let loadedCollection: AwjcCollection | null = null;
     if (api?.openCollectionFromPath) {
@@ -161,33 +176,183 @@ const WorkspaceShell: React.FC = () => {
       }
     }
     const fallbackName = filePath.split(/[/\\]/).pop() || filePath;
-    const col =
+    return (
       loadedCollection ??
       createEmptyCollection(fallbackName, {
         metadata: { id: generateAwjcId('col'), name: fallbackName },
-      });
-
-    setCollections(prev => {
-      if (prev.some(c => c.filePath === filePath)) return prev;
-      return [...prev, { filePath, collection: col, isDirty: false }];
-    });
-    setActiveCollectionPath(prev => prev ?? filePath);
+      })
+    );
   }, []);
+
+  const addCollectionByPath = useCallback(
+    async (filePath: string) => {
+      const col = await loadCollectionFromDisk(filePath);
+      setCollections(prev => {
+        if (prev.some(c => c.filePath === filePath)) return prev;
+        return [...prev, { filePath, collection: col, isDirty: false }];
+      });
+      setActiveCollectionPath(prev => prev ?? filePath);
+    },
+    [loadCollectionFromDisk],
+  );
 
   useEffect(() => {
     const api = window.electronAPI;
-    if (!api) return;
+    if (!api) {
+      isSessionHydratedRef.current = true;
+      return;
+    }
 
-    void api.loadSettings?.().then(settings => {
-      if (
-        Array.isArray(settings?.openCollectionPaths) &&
-        settings.openCollectionPaths.length > 0
-      ) {
-        for (const fp of settings.openCollectionPaths) {
-          void addCollectionByPath(fp);
+    let cancelled = false;
+
+    const hydrateWorkspace = async () => {
+      try {
+        const [settings, savedSession] = await Promise.all([
+          api.loadSettings?.() ?? Promise.resolve(null),
+          api.loadSession?.() ?? Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+
+        const pathSet = new Set<string>();
+        if (Array.isArray(savedSession?.openCollectionPaths)) {
+          for (const fp of savedSession.openCollectionPaths) {
+            if (fp) pathSet.add(fp);
+          }
+        }
+        if (Array.isArray(settings?.openCollectionPaths)) {
+          for (const fp of settings.openCollectionPaths) {
+            if (fp) pathSet.add(fp);
+          }
+        }
+        if (Array.isArray(savedSession?.tabs)) {
+          for (const t of savedSession.tabs) {
+            if (t.collectionPath) pathSet.add(t.collectionPath);
+          }
+        }
+
+        const loadedByPath = new Map<string, AwjcCollection>();
+        for (const fp of pathSet) {
+          const col = await loadCollectionFromDisk(fp);
+          const savedEnv = savedSession?.activeEnvironmentByCollection?.[fp];
+          loadedByPath.set(
+            fp,
+            savedEnv !== undefined ? { ...col, activeEnvironment: savedEnv ?? undefined } : col,
+          );
+        }
+        if (cancelled) return;
+
+        if (savedSession) {
+          const restoredCollectionPath =
+            savedSession.activeCollectionPath ??
+            Array.from(loadedByPath.keys())[0] ??
+            null;
+          if (restoredCollectionPath) {
+            setActiveCollectionPath(restoredCollectionPath);
+          }
+          if (savedSession.activeConfigTab) {
+            setActiveConfigTab(savedSession.activeConfigTab);
+          }
+          if (savedSession.splitLayout) {
+            setSplitLayout(savedSession.splitLayout);
+          }
+
+          if (Array.isArray(savedSession.tabs)) {
+            const restoredTabs: RequestWorkspaceTab[] = [];
+            for (const st of savedSession.tabs) {
+              const col = st.collectionPath ? loadedByPath.get(st.collectionPath) : undefined;
+              const treeFound =
+                col && st.requestId ? findItemById(col.items, st.requestId) : undefined;
+              const savedReq =
+                treeFound && treeFound.kind === 'request' ? treeFound : undefined;
+
+              let draftReq: RequestItem | undefined;
+              if (st.draftJson) {
+                try {
+                  const parsed = JSON.parse(st.draftJson) as Partial<RequestItem>;
+                  if (parsed && typeof parsed === 'object') {
+                    draftReq = createDefaultHttpRequest({
+                      ...parsed,
+                      id: parsed.id || st.requestId || generateAwjcId('req'),
+                      name: parsed.name || st.title || 'Untitled Request',
+                    });
+                    if (parsed.protocol === 'graphql') {
+                      draftReq = {
+                        ...draftReq,
+                        protocol: 'graphql',
+                        graphql: parsed.graphql,
+                      };
+                    }
+                  }
+                } catch {
+                  // ignore corrupt draft
+                }
+              }
+
+              const activeReq =
+                draftReq ??
+                savedReq ??
+                createDefaultHttpRequest({
+                  id: st.requestId || generateAwjcId('req'),
+                  name: st.title || 'Untitled Request',
+                });
+
+              if (col && st.collectionPath && st.isDirty && draftReq) {
+                loadedByPath.set(st.collectionPath, {
+                  ...col,
+                  items: updateItemInTree(col.items, activeReq.id, () => activeReq),
+                });
+              }
+
+              restoredTabs.push({
+                id: st.id,
+                collectionPath: st.collectionPath ?? null,
+                request: activeReq,
+                savedRequest: savedReq ?? activeReq,
+                isDirty: Boolean(st.isDirty),
+              });
+            }
+
+            setTabs(restoredTabs);
+            const targetActiveId =
+              savedSession.activeTabId &&
+              restoredTabs.some(t => t.id === savedSession.activeTabId)
+                ? savedSession.activeTabId
+                : (restoredTabs[0]?.id ?? null);
+            setActiveTabId(targetActiveId);
+          }
+        } else if (loadedByPath.size > 0) {
+          const firstPath = Array.from(loadedByPath.keys())[0];
+          setActiveCollectionPath(prev => prev ?? firstPath);
+        }
+
+        if (loadedByPath.size > 0) {
+          const dirtyPaths = new Set(
+            (savedSession?.tabs ?? [])
+              .filter(t => t.isDirty && t.collectionPath)
+              .map(t => t.collectionPath!),
+          );
+          setCollections(prev => {
+            const next = [...prev];
+            for (const [fp, col] of loadedByPath.entries()) {
+              if (!next.some(c => c.filePath === fp)) {
+                next.push({
+                  filePath: fp,
+                  collection: col,
+                  isDirty: dirtyPaths.has(fp),
+                });
+              }
+            }
+            return next;
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          isSessionHydratedRef.current = true;
         }
       }
-    });
+    };
+
+    void hydrateWorkspace();
 
     void api.getCliCommandStatus?.().then(status => {
       if (status) setCliEnabled(status.enabled);
@@ -196,11 +361,69 @@ const WorkspaceShell: React.FC = () => {
     const unsubscribeOsOpen = api.onCollectionOpenedFromOs?.(filePath => {
       void addCollectionByPath(filePath);
     });
+    const unsubscribeMenuOpen = api.onMenuOpenCollection?.(() => {
+      void api.openCollectionDialog?.().then(async selected => {
+        if (selected && selected.length > 0) {
+          for (const fp of selected) {
+            await addCollectionByPath(fp);
+          }
+        }
+      });
+    });
+    const unsubscribeMenuCurl = api.onMenuImportCurl?.(() => {
+      setImportCurlError(null);
+      setImportCurlModalOpen(true);
+    });
+    const unsubscribeMenuOpenApi = api.onMenuImportOpenApi?.(() => {
+      void api.importOpenApiWithDialog?.().then(res => {
+        if (res?.collection) {
+          const virtualPath = `${res.sourcePath}.awjc`;
+          setCollections(prev => [
+            ...prev,
+            { filePath: virtualPath, collection: res.collection, isDirty: true },
+          ]);
+          setActiveCollectionPath(virtualPath);
+        }
+      });
+    });
 
     return () => {
+      cancelled = true;
       unsubscribeOsOpen?.();
+      unsubscribeMenuOpen?.();
+      unsubscribeMenuCurl?.();
+      unsubscribeMenuOpenApi?.();
     };
-  }, [addCollectionByPath]);
+  }, [addCollectionByPath, loadCollectionFromDisk]);
+
+  useEffect(() => {
+    if (!isSessionHydratedRef.current) return;
+    const api = window.electronAPI;
+    if (!api?.saveSession) return;
+
+    const openCollectionPaths = collections.map(c => c.filePath);
+    const activeEnvironmentByCollection: Record<string, string | null> = {};
+    for (const c of collections) {
+      activeEnvironmentByCollection[c.filePath] = c.collection.activeEnvironment ?? null;
+    }
+
+    void api.saveSession({
+      activeTabId: activeTabId ?? null,
+      activeCollectionPath: activeCollectionPath ?? null,
+      activeEnvironmentByCollection,
+      openCollectionPaths,
+      activeConfigTab,
+      splitLayout,
+      tabs: tabs.map(t => ({
+        id: t.id,
+        title: t.request.name || 'Untitled Request',
+        collectionPath: t.collectionPath ?? null,
+        requestId: t.request.id ?? null,
+        isDirty: Boolean(t.isDirty),
+        ...(t.isDirty || !t.collectionPath ? { draftJson: JSON.stringify(t.request) } : {}),
+      })),
+    });
+  }, [collections, activeCollectionPath, tabs, activeTabId, activeConfigTab, splitLayout]);
 
   const activeCollectionEntry = useMemo(
     () =>
@@ -261,6 +484,18 @@ const WorkspaceShell: React.FC = () => {
       for (const fp of selected) {
         await addCollectionByPath(fp);
       }
+    }
+  };
+
+  const handleImportOpenApiDialog = async () => {
+    const res = await window.electronAPI?.importOpenApiWithDialog?.();
+    if (res?.collection) {
+      const virtualPath = `${res.sourcePath}.awjc`;
+      setCollections(prev => [
+        ...prev,
+        { filePath: virtualPath, collection: res.collection, isDirty: true },
+      ]);
+      setActiveCollectionPath(virtualPath);
     }
   };
 
@@ -426,6 +661,55 @@ const WorkspaceShell: React.FC = () => {
     });
   };
 
+  const performCloseCollection = useCallback((filePath: string) => {
+    setCollections(prev => {
+      const remaining = prev.filter(c => c.filePath !== filePath);
+      setActiveCollectionPath(curr =>
+        curr === filePath ? (remaining[0]?.filePath ?? null) : curr,
+      );
+      return remaining;
+    });
+    setTabs(prev => {
+      const remainingTabs = prev.filter(t => t.collectionPath !== filePath);
+      setActiveTabId(curr =>
+        curr && !remainingTabs.some(t => t.id === curr)
+          ? (remainingTabs[remainingTabs.length - 1]?.id ?? null)
+          : curr,
+      );
+      return remainingTabs;
+    });
+  }, []);
+
+  const handleCloseCollection = useCallback(
+    (filePath: string) => {
+      const colEntry = collections.find(c => c.filePath === filePath);
+      const hasDirtyTabForCollection = tabs.some(
+        t => t.collectionPath === filePath && t.isDirty,
+      );
+      if (colEntry?.isDirty || hasDirtyTabForCollection) {
+        setPendingCloseCollectionPath(filePath);
+        return;
+      }
+      performCloseCollection(filePath);
+    },
+    [collections, tabs, performCloseCollection],
+  );
+
+  const handleConfirmSaveAndCloseCollection = async () => {
+    if (!pendingCloseCollectionPath) return;
+    const fp = pendingCloseCollectionPath;
+    await handleSaveCollection(fp);
+    setPendingCloseCollectionPath(null);
+    performCloseCollection(fp);
+  };
+
+  const handleConfirmDiscardAndCloseCollection = () => {
+    if (!pendingCloseCollectionPath) return;
+    const fp = pendingCloseCollectionPath;
+    setPendingCloseCollectionPath(null);
+    performCloseCollection(fp);
+  };
+
   const handleSelectRequestFromTree = (collectionPath: string, req: RequestItem) => {
     setActiveCollectionPath(collectionPath);
     if (req.protocol === 'graphql') {
@@ -572,15 +856,19 @@ const WorkspaceShell: React.FC = () => {
           setEnvModalTab('environments');
           setEnvModalOpen(true);
         }}
-        onOpenOAuth2Manager={() => {
-          setEnvModalTab('authProfiles');
-          setEnvModalOpen(true);
-        }}
         onOpenPreferences={() => {
           setEnvModalTab('environments');
           setEnvModalOpen(true);
         }}
-        onOpenCollectionDialog={() => void handleOpenCollectionDialog()}
+        onOpenCollectionRunner={() => {
+          setRunnerInitialFolderId(null);
+          setRunnerModalOpen(true);
+        }}
+        onOpenImportOpenApi={() => void handleImportOpenApiDialog()}
+        onOpenImportCurl={() => {
+          setImportCurlError(null);
+          setImportCurlModalOpen(true);
+        }}
         cliEnabled={cliEnabled}
         splitLayout={splitLayout}
         onToggleSplitLayout={() =>
@@ -615,11 +903,39 @@ const WorkspaceShell: React.FC = () => {
                   setActiveTabId(newTabId);
                 }
               }}
+              onSaveHistoryEntryToCollection={entry => {
+                if (!entry.requestSnapshot || !activeCollectionEntry) return;
+                const savedCopy: RequestItem = {
+                  ...entry.requestSnapshot,
+                  id: generateAwjcId('req'),
+                };
+                setCollections(prev =>
+                  prev.map(c =>
+                    c.filePath === activeCollectionEntry.filePath
+                      ? {
+                          ...c,
+                          isDirty: true,
+                          collection: {
+                            ...c.collection,
+                            items: [...c.collection.items, savedCopy],
+                          },
+                        }
+                      : c,
+                  ),
+                );
+                handleSelectRequestFromTree(activeCollectionEntry.filePath, savedCopy);
+              }}
               onClearHistory={() => setHistoryEntries([])}
               onNewCollection={handleNewCollection}
               onImportCollection={() => void handleOpenCollectionDialog()}
+              onRunCollection={(fp, folderId) => {
+                setActiveCollectionPath(fp);
+                setRunnerInitialFolderId(folderId ?? null);
+                setRunnerModalOpen(true);
+              }}
               onSaveCollection={fp => void handleSaveCollection(fp)}
               onExportCollection={(fp, fmt) => void handleExportCollection(fp, fmt)}
+              onCloseCollection={handleCloseCollection}
               onNewHttpRequest={(fp, parentFolderId) => {
                 const newReq = createDefaultHttpRequest();
                 setCollections(prev =>
@@ -730,6 +1046,11 @@ const WorkspaceShell: React.FC = () => {
                   ),
                 );
               }}
+              onGenerateCodeForRequest={(fp, req) => {
+                setActiveCollectionPath(fp);
+                setCodeSnippetTargetRequest(req);
+                setCodeSnippetModalOpen(true);
+              }}
             />
           }
           secondPane={
@@ -780,6 +1101,13 @@ const WorkspaceShell: React.FC = () => {
                     next.splice(toIdx, 0, moved);
                     return next;
                   });
+                }}
+                onGenerateCodeForTab={tab => {
+                  if (tab.collectionPath) {
+                    setActiveCollectionPath(tab.collectionPath);
+                  }
+                  setCodeSnippetTargetRequest(tab.request);
+                  setCodeSnippetModalOpen(true);
                 }}
               />
 
@@ -901,6 +1229,23 @@ const WorkspaceShell: React.FC = () => {
                             onEditVariable={() => {
                               setEnvModalTab('environments');
                               setEnvModalOpen(true);
+                            }}
+                            onPasteCurl={parsed => {
+                              updateActiveRequest(r => ({
+                                ...r,
+                                protocol: 'http',
+                                method: parsed.method,
+                                url: parsed.url,
+                                queryParams: parsed.queryParams,
+                                pathParams: parsed.pathParams,
+                                headers: parsed.headers,
+                                auth: parsed.auth,
+                                body: parsed.body,
+                              }));
+                            }}
+                            onOpenCodeSnippet={() => {
+                              setCodeSnippetTargetRequest(activeRequest);
+                              setCodeSnippetModalOpen(true);
                             }}
                           />
 
@@ -1209,6 +1554,120 @@ const WorkspaceShell: React.FC = () => {
         );
       })()}
 
+      {/* Unsaved Collection Changes Confirmation Modal */}
+      {pendingCloseCollectionPath && (() => {
+        const closingColEntry = collections.find(c => c.filePath === pendingCloseCollectionPath);
+        const colName =
+          closingColEntry?.collection.metadata.name || pendingCloseCollectionPath;
+
+        return (
+          <div
+            data-testid="unsaved-collection-close-modal-backdrop"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 200,
+              backgroundColor: 'rgba(0, 0, 0, 0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 20,
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Unsaved Collection Changes"
+              data-testid="unsaved-collection-close-modal"
+              style={{
+                width: '100%',
+                maxWidth: 440,
+                backgroundColor: colors.bgPrimary,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 10,
+                padding: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+                boxShadow: '0 20px 50px rgba(0, 0, 0, 0.45)',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.textPrimary }}>
+                {`Do you want to save the changes you made to collection "${colName}" before closing it?`}
+              </div>
+
+              <div style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 1.5 }}>
+                Your unsaved changes to this collection or its requests will be lost if you don&apos;t save them.
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  gap: 8,
+                  marginTop: 4,
+                }}
+              >
+                <button
+                  type="button"
+                  data-testid="unsaved-collection-modal-cancel-btn"
+                  onClick={() => setPendingCloseCollectionPath(null)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 6,
+                    border: `1px solid ${colors.border}`,
+                    backgroundColor: 'transparent',
+                    color: colors.textPrimary,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="unsaved-collection-modal-discard-btn"
+                  onClick={handleConfirmDiscardAndCloseCollection}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 6,
+                    border: `1px solid ${colors.danger}`,
+                    backgroundColor: 'transparent',
+                    color: colors.danger,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Don&apos;t Save
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="unsaved-collection-modal-save-btn"
+                  onClick={() => void handleConfirmSaveAndCloseCollection()}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 6,
+                    border: 'none',
+                    backgroundColor: colors.accent,
+                    color: '#ffffff',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Save &amp; Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Environments, Variables & Secrets Manager Modal */}
       <EnvironmentManagerModal
         isOpen={envModalOpen}
@@ -1226,6 +1685,160 @@ const WorkspaceShell: React.FC = () => {
         }}
         onClose={() => setEnvModalOpen(false)}
       />
+
+      {/* Code Snippet Generator Modal */}
+      <CodeSnippetModal
+        isOpen={codeSnippetModalOpen}
+        request={codeSnippetTargetRequest ?? activeRequest}
+        interpolationContext={interpolationContext}
+        inheritedHeaders={activeCollection.defaults?.headers ?? []}
+        collectionDefaultAuth={activeCollection.defaults?.auth}
+        authProfiles={activeCollection.authProfiles}
+        onClose={() => {
+          setCodeSnippetModalOpen(false);
+          setCodeSnippetTargetRequest(null);
+        }}
+      />
+
+      {/* Collection / Folder Runner Modal */}
+      <CollectionRunnerModal
+        isOpen={runnerModalOpen}
+        collection={activeCollection}
+        initialFolderId={runnerInitialFolderId}
+        initialCapturedVariables={capturedVars}
+        onUpdateCapturedVariables={setCapturedVars}
+        onClose={() => {
+          setRunnerModalOpen(false);
+          setRunnerInitialFolderId(null);
+        }}
+      />
+
+      {/* Import cURL Modal */}
+      {importCurlModalOpen && (
+        <div
+          data-testid="import-curl-modal-backdrop"
+          onClick={() => setImportCurlModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 190,
+            backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Import cURL Command"
+            data-testid="import-curl-modal"
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 640,
+              backgroundColor: colors.bgPrimary,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 10,
+              padding: 18,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.45)',
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Import cURL Command</div>
+            <textarea
+              data-testid="import-curl-textarea"
+              aria-label="cURL Command Input"
+              rows={6}
+              value={importCurlDraft}
+              onChange={e => {
+                setImportCurlDraft(e.target.value);
+                setImportCurlError(null);
+              }}
+              placeholder="curl -X POST https://api.example.com/v1/orders -H 'Content-Type: application/json' -d '{&quot;sku&quot;:&quot;A1&quot;}'"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: 10,
+                borderRadius: 6,
+                border: `1px solid ${colors.border}`,
+                backgroundColor: colors.bgSecondary,
+                color: colors.textPrimary,
+                fontFamily: 'monospace',
+                fontSize: 12,
+              }}
+            />
+            {importCurlError && (
+              <div
+                data-testid="import-curl-error"
+                style={{ color: colors.danger, fontSize: 12 }}
+              >
+                {importCurlError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                data-testid="cancel-import-curl-btn"
+                onClick={() => setImportCurlModalOpen(false)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: `1px solid ${colors.border}`,
+                  backgroundColor: 'transparent',
+                  color: colors.textPrimary,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-import-curl-btn"
+                onClick={() => {
+                  try {
+                    const importedReq = curlToRequestItem(importCurlDraft);
+                    const newTabId = generateAwjcId('tab');
+                    setTabs(prev => [
+                      ...prev,
+                      {
+                        id: newTabId,
+                        collectionPath: activeCollectionPath,
+                        request: importedReq,
+                        savedRequest: importedReq,
+                        isDirty: true,
+                      },
+                    ]);
+                    setActiveTabId(newTabId);
+                    setImportCurlDraft('');
+                    setImportCurlModalOpen(false);
+                  } catch (err) {
+                    setImportCurlError(
+                      err instanceof Error ? err.message : 'Invalid cURL command',
+                    );
+                  }
+                }}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 6,
+                  border: 'none',
+                  backgroundColor: colors.accent,
+                  color: '#ffffff',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Import into Request Tab
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

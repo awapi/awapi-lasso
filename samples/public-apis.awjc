@@ -5,7 +5,7 @@ metadata:
   name: Public Web APIs
   description: Ready-to-run GET & GraphQL requests against public APIs (HTTPBin, JSONPlaceholder, GitHub, and Countries GraphQL)
   createdAt: 2026-10-25T00:00:00Z
-  updatedAt: 2026-10-25T00:00:00Z
+  updatedAt: 2026-10-25T23:08:12.365Z
 defaults:
   timeoutMs: 30000
   followRedirects: true

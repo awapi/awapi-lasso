@@ -15,6 +15,10 @@ vi.mock('electron', () => ({
 
 vi.mock('path', () => ({
   join: (...parts: string[]) => parts.join('/').replace(/\/+/g, '/'),
+  dirname: (p: string) => {
+    const idx = p.lastIndexOf('/');
+    return idx <= 0 ? '.' : p.slice(0, idx);
+  },
 }));
 
 vi.mock('fs', () => ({
@@ -55,6 +59,8 @@ import {
   addRecentFile,
   removeRecentFile,
   clearRecentFiles,
+  getLastOpenDirectory,
+  setLastOpenDirectoryFromFile,
   saveSession,
   loadSession,
 } from './session';
@@ -130,11 +136,28 @@ describe('session settings, recent collections, and session state', () => {
     expect(getRecentFiles()).toEqual([]);
   });
 
-  it('saves and loads workspace session state including unsaved drafts', () => {
+  it('remembers and returns the last open directory from imported or opened files', () => {
+    dirs.add('/Users/me/projects/apis');
+    dirs.add('/Users/me/projects/openapi');
+
+    expect(getLastOpenDirectory()).toBeUndefined();
+
+    addRecentFile('/Users/me/projects/apis/orders.awjc');
+    expect(loadAppSettings().lastOpenDirectory).toBe('/Users/me/projects/apis');
+    expect(getLastOpenDirectory()).toBe('/Users/me/projects/apis');
+
+    setLastOpenDirectoryFromFile('/Users/me/projects/openapi/spec.yaml');
+    expect(getLastOpenDirectory()).toBe('/Users/me/projects/openapi');
+  });
+
+  it('saves and loads workspace session state including open collections, layout, and unsaved drafts', () => {
     const ok = saveSession({
       activeTabId: 'tab-1',
       activeCollectionPath: '/workspace/api.awjc',
       activeEnvironmentByCollection: { '/workspace/api.awjc': 'staging' },
+      openCollectionPaths: ['/workspace/api.awjc', '/workspace/orders.awjc'],
+      activeConfigTab: 'headers',
+      splitLayout: 'horizontal',
       tabs: [
         {
           id: 'tab-1',
@@ -162,6 +185,16 @@ describe('session settings, recent collections, and session state', () => {
     expect(restored?.activeEnvironmentByCollection).toEqual({
       '/workspace/api.awjc': 'staging',
     });
+    expect(restored?.openCollectionPaths).toEqual([
+      '/workspace/api.awjc',
+      '/workspace/orders.awjc',
+    ]);
+    expect(restored?.activeConfigTab).toBe('headers');
+    expect(restored?.splitLayout).toBe('horizontal');
+    expect(loadAppSettings().openCollectionPaths).toEqual([
+      '/workspace/api.awjc',
+      '/workspace/orders.awjc',
+    ]);
     expect(restored?.tabs).toHaveLength(2);
     expect(restored?.tabs[0].draftJson).toBe(
       JSON.stringify({ method: 'GET', url: '{{baseUrl}}/users' }),
