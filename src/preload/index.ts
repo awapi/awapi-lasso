@@ -13,6 +13,13 @@ import type {
   OAuth2TokenExchangeResult,
   OAuth2TokenRecord,
 } from '../shared/oauth2Types';
+import type {
+  GraphQLCachedSchemaRecord,
+  GraphQLIntrospectRequest,
+  GraphQLLoadLocalSchemaRequest,
+  GraphQLSchemaCacheCoordinate,
+  GraphQLSchemaDiscoveryResult,
+} from '../main/graphqlIntrospection';
 import { COLLECTION_OPENED_FROM_OS_CHANNEL } from '../main/osFileAssociation';
 
 export const electronAPI = {
@@ -94,6 +101,22 @@ export const electronAPI = {
     ipcRenderer.invoke('oauth2:getCachedToken', coord) as Promise<OAuth2TokenRecord | null>,
   clearOAuth2Token: (coord: OAuth2TokenCoordinate) =>
     ipcRenderer.invoke('oauth2:clearToken', coord) as Promise<boolean>,
+
+  /** GraphQL schema introspection, offline SDL/JSON import, and per-environment cache lookup. */
+  introspectGraphQLSchema: (payload: GraphQLIntrospectRequest) =>
+    ipcRenderer.invoke('graphql:introspect', payload) as Promise<GraphQLSchemaDiscoveryResult>,
+  loadLocalGraphQLSchema: (payload: GraphQLLoadLocalSchemaRequest) =>
+    ipcRenderer.invoke(
+      'graphql:loadLocalSchema',
+      payload,
+    ) as Promise<GraphQLSchemaDiscoveryResult>,
+  getCachedGraphQLSchema: (coord: GraphQLSchemaCacheCoordinate) =>
+    ipcRenderer.invoke(
+      'graphql:getCachedSchema',
+      coord,
+    ) as Promise<GraphQLCachedSchemaRecord | null>,
+  openGraphQLSchemaFileDialog: () =>
+    ipcRenderer.invoke('graphql:openSchemaFileDialog') as Promise<string | null>,
 
   /** Subscribes to `.awjc` / `.awj` collection file paths opened from OS Finder/Explorer or CLI (`awlasso`). */
   onCollectionOpenedFromOs: (callback: (filePath: string) => void) => {

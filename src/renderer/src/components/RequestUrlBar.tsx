@@ -58,6 +58,7 @@ export function formatScopeLabel(source: InspectedVariableToken['source']): stri
 
 export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
   method,
+  protocol,
   url,
   pathParams = [],
   interpolationContext = {},
@@ -70,7 +71,7 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
 }) => {
   const { colors, isLight } = useTheme();
   const [isCustomVerb, setIsCustomVerb] = useState<boolean>(
-    !STANDARD_VERBS.includes(method.toUpperCase()),
+    protocol !== 'graphql' && !STANDARD_VERBS.includes(method.toUpperCase()),
   );
   const [hoveredVar, setHoveredVar] = useState<InspectedVariableToken | null>(null);
   const [revealSecret, setRevealSecret] = useState<boolean>(false);
@@ -156,7 +157,13 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
         <select
           aria-label="HTTP Method"
           data-testid="method-select"
-          value={isCustomVerb ? '__CUSTOM__' : method.toUpperCase()}
+          value={
+            protocol === 'graphql'
+              ? 'GRAPHQL'
+              : isCustomVerb
+                ? '__CUSTOM__'
+                : method.toUpperCase()
+          }
           onChange={e => handleSelectMethod(e.target.value)}
           style={{
             padding: '8px 12px',

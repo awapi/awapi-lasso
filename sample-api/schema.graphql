@@ -73,6 +73,134 @@ type OrderGql implements CatalogNode {
 """Union result returned by global catalog search"""
 union SearchResult = InventoryItem | Warehouse | OrderGql
 
+"""Sort direction for orderBy clauses"""
+enum SortDirection {
+  ASC
+  DESC
+}
+
+"""Sortable fields on InventoryItem"""
+enum InventorySortField {
+  SKU
+  NAME
+  CATEGORY
+  AVAILABLE_QUANTITY
+  UNIT_PRICE
+  UPDATED_AT
+}
+
+"""Sortable fields on OrderGql"""
+enum OrderSortField {
+  ID
+  CUSTOMER_ID
+  STATUS
+  TOTAL_AMOUNT
+  REQUESTED_AT
+  UPDATED_AT
+}
+
+"""String comparison filter operators"""
+input StringComparisonFilter {
+  eq: String
+  contains: String
+  startsWith: String
+}
+
+"""Integer comparison filter operators"""
+input IntComparisonFilter {
+  eq: Int
+  gt: Int
+  gte: Int
+  lt: Int
+  lte: Int
+}
+
+"""Float comparison filter operators"""
+input FloatComparisonFilter {
+  eq: Float
+  gt: Float
+  gte: Float
+  lt: Float
+  lte: Float
+}
+
+"""Structured where filter for inventory items"""
+input InventoryWhereInput {
+  sku: StringComparisonFilter
+  name: StringComparisonFilter
+  warehouseId: ID
+  category: ProductCategory
+  inStock: Boolean
+  availableQuantity: IntComparisonFilter
+  unitPrice: FloatComparisonFilter
+  AND: [InventoryWhereInput!]
+  OR: [InventoryWhereInput!]
+}
+
+"""OrderBy clause for inventory items"""
+input InventoryOrderByInput {
+  field: InventorySortField!
+  direction: SortDirection! = ASC
+}
+
+"""Structured where filter for customer orders"""
+input OrderWhereInput {
+  id: StringComparisonFilter
+  customerId: StringComparisonFilter
+  status: String
+  currency: String
+  totalAmount: FloatComparisonFilter
+  AND: [OrderWhereInput!]
+  OR: [OrderWhereInput!]
+}
+
+"""OrderBy clause for customer orders"""
+input OrderOrderByInput {
+  field: OrderSortField!
+  direction: SortDirection! = ASC
+}
+
+"""Groupable dimensions on InventoryItem"""
+enum InventoryGroupField {
+  CATEGORY
+  WAREHOUSE_ID
+  IN_STOCK
+}
+
+"""Groupable dimensions on OrderGql"""
+enum OrderGroupField {
+  STATUS
+  CURRENCY
+  CUSTOMER_ID
+}
+
+"""Aggregated metrics for a grouped inventory bucket"""
+type InventoryGroupSummary {
+  groupKey: String!
+  category: ProductCategory
+  warehouseId: ID
+  inStock: Boolean
+  count: Int!
+  totalAvailableQuantity: Int!
+  totalReservedQuantity: Int!
+  avgUnitPrice: Float!
+  minUnitPrice: Float!
+  maxUnitPrice: Float!
+  items: [InventoryItem!]!
+}
+
+"""Aggregated metrics for a grouped customer order bucket"""
+type OrderGroupSummary {
+  groupKey: String!
+  status: String
+  currency: String
+  customerId: String
+  count: Int!
+  totalAmountSum: Float!
+  avgTotalAmount: Float!
+  orders: [OrderGql!]!
+}
+
 """Input payload for adjusting SKU inventory stock"""
 input AdjustStockInput {
   sku: ID!
@@ -97,11 +225,13 @@ type Query {
   """Look up a single inventory item by SKU and optional warehouse ID"""
   inventoryItem(sku: ID!, warehouseId: ID): InventoryItem
 
-  """List inventory items with optional filtering by warehouse, category, or stock status"""
+  """List inventory items with optional filtering (`where`), sorting (`orderBy`), warehouse, category, or stock status"""
   inventoryItems(
     warehouseId: ID
     category: ProductCategory
     inStockOnly: Boolean
+    where: InventoryWhereInput
+    orderBy: [InventoryOrderByInput!]
     limit: Int = 20
   ): [InventoryItem!]!
 
@@ -111,14 +241,31 @@ type Query {
   """Get a single warehouse by ID"""
   warehouse(id: ID!): Warehouse
 
-  """List customer orders from GraphQL"""
-  orders(status: String, limit: Int = 25): [OrderGql!]!
+  """List customer orders from GraphQL with optional `where` filter and `orderBy` sorting"""
+  orders(
+    status: String
+    where: OrderWhereInput
+    orderBy: [OrderOrderByInput!]
+    limit: Int = 25
+  ): [OrderGql!]!
 
   """Get a customer order by ID"""
   order(id: ID!): OrderGql
 
   """Search across inventory items, warehouses, and orders"""
   searchCatalog(text: String!): [SearchResult!]!
+
+  """Group inventory items by category, warehouseId, or inStock with aggregated counts, sums, and averages"""
+  inventorySummaryByGroup(
+    groupBy: [InventoryGroupField!]!
+    where: InventoryWhereInput
+  ): [InventoryGroupSummary!]!
+
+  """Group customer orders by status, currency, or customerId with aggregated counts and revenue totals"""
+  ordersSummaryByGroup(
+    groupBy: [OrderGroupField!]!
+    where: OrderWhereInput
+  ): [OrderGroupSummary!]!
 }
 
 type Mutation {

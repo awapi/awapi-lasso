@@ -7,7 +7,7 @@ Deliver first-class GraphQL support in AwapiLasso: live **Schema Discovery** via
 
 ## Tasks Checklist
 
-- [ ] **T5.1 — GraphQL Schema Loader & Main-Process Introspection Service**
+- [x] **T5.1 — GraphQL Schema Loader & Main-Process Introspection Service**
   - Create `src/shared/graphqlSchemaLoader.ts` + `src/shared/graphqlSchemaLoader.test.ts`:
     - Build a `GraphQLSchema` from either standard `IntrospectionQuery` JSON (`buildClientSchema`) or `.graphql` / `.gql` SDL text (`buildSchema`).
     - Extract normalized schema metadata for the UI: root operation types (`queryType`, `mutationType`, `subscriptionType`), fields, arguments (with required/default markers), return types, input objects, enums, interfaces, unions, and `@deprecated` annotations.
@@ -17,27 +17,27 @@ Deliver first-class GraphQL support in AwapiLasso: live **Schema Discovery** via
     - Cache schemas locally per `(collectionId, environmentId, endpointUrl)` with `fetchedAt` timestamp and schema diff summary.
     - Expose IPC channels (`graphql:introspect`, `graphql:loadLocalSchema`, `graphql:getCachedSchema`).
 
-- [ ] **T5.2 — Two-Way GraphQL AST Synchronization Engine (`Query Designer` ↔ `Monaco Editor`)**
+- [x] **T5.2 — Two-Way GraphQL AST Synchronization Engine (`Query Designer` ↔ `Monaco Editor`)**
   - Create `src/shared/graphqlAstSync.ts` + `src/shared/graphqlAstSync.test.ts` (following `.agents/skills/graphql-schema-and-designer/SKILL.md`):
-    - **Designer → AST (`toggleFieldSelection`, `setFieldArgument`, `toggleVariableBinding`, `toggleInlineFragment`):**
+    - **Designer → AST (`toggleFieldSelection`, `setFieldArgument`, `setNestedArgumentValue`, `toggleVariableBinding`, `toggleInlineFragment`):**
       - Check/uncheck any root or nested field path in the operation AST (`parse` / `visit` / `print`).
       - When checking an object/interface field with no sub-selections, automatically select its primary scalar fields (`id`, `name`, or first scalar field) so the generated query is immediately valid.
       - Unchecking a field removes it and prunes empty ancestor selection sets.
-      - Support literal argument editing as well as **one-click `$variable` promotion** (adds `$argName: Type!` to `OperationDefinitionNode.variableDefinitions`, sets `argName: $argName` on the field, and populates `"argName": <default>` in the GraphQL Variables JSON).
+      - Support literal argument editing, nested `INPUT_OBJECT` / list arguments (`where`, `orderBy`, `groupBy`, `AND` / `OR` logical condition groups), and **one-click `$variable` promotion** (adds `$argName: Type!` to `OperationDefinitionNode.variableDefinitions`, sets `argName: $argName` on the field, and populates `"argName": <default>` in the GraphQL Variables JSON).
       - Support Union & Interface inline fragments (`... on ConcreteType { field }`).
       - Preserve user comments, field aliases, directives (`@include`, `@skip`), and operation names.
     - **AST → Designer (`extractSelectionStateFromAst`):**
-      - Parse the Monaco editor query text and extract checked field paths, expanded nodes, inline fragments, argument values, variable bindings, and operation names.
+      - Parse the Monaco editor query text and extract checked field paths, expanded nodes, inline fragments, argument values, nested input object/list values, variable bindings, and operation names.
       - Gracefully retain the last valid Designer tree state while the user is mid-keystroke with a temporary syntax error.
 
-- [ ] **T5.3 — Interactive Visual GraphQL Query Designer Component**
+- [x] **T5.3 — Interactive Visual GraphQL Query Designer Component**
   - Create `src/renderer/src/components/GraphQLQueryDesigner.tsx` + `GraphQLQueryDesigner.test.tsx`:
     - Root operation tabs (`Query` | `Mutation` | `Subscription`) and field search/filter input.
-    - Recursive collapsible tree of fields with checkboxes, return-type badges, description tooltips, and `@deprecated` warnings.
-    - Expandable **Arguments** section per field with typed inputs, enum dropdowns, and a **`$var`** toggle button to bind the argument to a GraphQL variable.
+    - Unified Postman-style recursive collapsible tree of arguments (`ARG` badge) and return fields with checkboxes, return-type badges, description tooltips, and `@deprecated` warnings.
+    - Dedicated icons and expandable builders for **`where`** (`Filter`), **`orderBy`** (`ArrowUpDown` with multi-rule sort items), **`groupBy`** (`Layers` with multi-enum checkboxes), and logical **`AND` / `OR` / `NOT`** condition groups (`GitBranch`), plus **`$var`** toggle buttons to bind arguments to GraphQL variables.
     - Expandable **`... on Type`** branches for Union and Interface fields.
 
-- [ ] **T5.4 — Split GraphQL Workspace & Schema Documentation Explorer**
+- [x] **T5.4 — Split GraphQL Workspace & Schema Documentation Explorer**
   - Create `src/renderer/src/components/GraphQLSchemaExplorer.tsx` + `GraphQLSchemaExplorer.test.tsx`:
     - Searchable, hyperlinked type and field documentation browser with a **"Generate Starter Query / Mutation"** action button.
   - Create `src/renderer/src/components/GraphQLWorkspace.tsx` + `GraphQLWorkspace.test.tsx`:

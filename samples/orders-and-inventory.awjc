@@ -573,3 +573,86 @@ items:
           - target: jsonpath
             path: $.data.searchCatalog
             operator: isArray
+      - kind: request
+        id: req_gql_filter_sort_inventory
+        name: Filter & Sort Inventory (where + orderBy)
+        protocol: graphql
+        method: POST
+        url: "{{baseUrl}}/graphql"
+        auth:
+          type: inherit
+        graphql:
+          operationName: FilterAndSortInventory
+          schemaSource:
+            mode: introspect
+            autoIntrospectOnOpen: true
+            localSchemaPath: ./sample-api/schema.graphql
+          query: |
+            query FilterAndSortInventory {
+              inventoryItems(
+                where: {inStock: true, availableQuantity: {gte: 10}}
+                orderBy: [{field: UNIT_PRICE, direction: DESC}]
+              ) {
+                sku
+                name
+                category
+                availableQuantity
+                unitPrice
+                inStock
+              }
+            }
+          variables: "{}"
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.inventoryItems
+            operator: isArray
+          - target: jsonpath
+            path: $.data.inventoryItems[0].sku
+            operator: equals
+            expected: SKU-200
+      - kind: request
+        id: req_gql_group_by_inventory
+        name: Group Inventory by Category (groupBy + Aggregations)
+        protocol: graphql
+        method: POST
+        url: "{{baseUrl}}/graphql"
+        auth:
+          type: inherit
+        graphql:
+          operationName: GroupInventoryByCategory
+          schemaSource:
+            mode: introspect
+            autoIntrospectOnOpen: true
+            localSchemaPath: ./sample-api/schema.graphql
+          query: |
+            query GroupInventoryByCategory {
+              inventorySummaryByGroup(
+                groupBy: [CATEGORY, WAREHOUSE_ID]
+                where: {OR: [{category: ELECTRONICS}, {category: SOFTWARE}]}
+              ) {
+                groupKey
+                category
+                warehouseId
+                count
+                totalAvailableQuantity
+                avgUnitPrice
+                minUnitPrice
+                maxUnitPrice
+              }
+            }
+          variables: "{}"
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.inventorySummaryByGroup
+            operator: isArray
+          - target: jsonpath
+            path: $.data.inventorySummaryByGroup[0].count
+            operator: greaterThan
+            expected: 0
+

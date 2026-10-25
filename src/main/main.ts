@@ -85,6 +85,14 @@ import type {
   OAuth2RefreshTokenRequest,
   OAuth2TokenCoordinate,
 } from '../shared/oauth2Types';
+import {
+  getCachedGraphQLSchema,
+  introspectRemoteGraphQLSchema,
+  loadLocalGraphQLSchemaFile,
+  type GraphQLIntrospectRequest,
+  type GraphQLLoadLocalSchemaRequest,
+  type GraphQLSchemaCacheCoordinate,
+} from './graphqlIntrospection';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -702,6 +710,34 @@ function registerIpcHandlers(): void {
   ipcMain.handle('oauth2:clearToken', (_event, coord: OAuth2TokenCoordinate) =>
     clearCachedOAuth2Token(coord, buildOAuth2EngineDeps()),
   );
+
+  ipcMain.handle('graphql:introspect', (_event, payload: GraphQLIntrospectRequest) =>
+    introspectRemoteGraphQLSchema(payload, { httpDeps: buildHttpEngineDeps() }),
+  );
+  ipcMain.handle(
+    'graphql:loadLocalSchema',
+    (_event, payload: GraphQLLoadLocalSchemaRequest) =>
+      loadLocalGraphQLSchemaFile(payload),
+  );
+  ipcMain.handle(
+    'graphql:getCachedSchema',
+    (_event, coord: GraphQLSchemaCacheCoordinate) => getCachedGraphQLSchema(coord),
+  );
+  ipcMain.handle('graphql:openSchemaFileDialog', async () => {
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+      title: 'Load GraphQL Schema (SDL or Introspection JSON)',
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'GraphQL Schema (*.graphql, *.gql, *.json)',
+          extensions: ['graphql', 'gql', 'json'],
+        },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
 
   ipcMain.handle('clipboard:writeText', (_event, text: string) => {
     clipboard.writeText(text);

@@ -147,6 +147,134 @@ export const SAMPLE_GRAPHQL_SDL = `
   """Union result returned by global catalog search"""
   union SearchResult = InventoryItem | Warehouse | OrderGql
 
+  """Sort direction for orderBy clauses"""
+  enum SortDirection {
+    ASC
+    DESC
+  }
+
+  """Sortable fields on InventoryItem"""
+  enum InventorySortField {
+    SKU
+    NAME
+    CATEGORY
+    AVAILABLE_QUANTITY
+    UNIT_PRICE
+    UPDATED_AT
+  }
+
+  """Sortable fields on OrderGql"""
+  enum OrderSortField {
+    ID
+    CUSTOMER_ID
+    STATUS
+    TOTAL_AMOUNT
+    REQUESTED_AT
+    UPDATED_AT
+  }
+
+  """String comparison filter operators"""
+  input StringComparisonFilter {
+    eq: String
+    contains: String
+    startsWith: String
+  }
+
+  """Integer comparison filter operators"""
+  input IntComparisonFilter {
+    eq: Int
+    gt: Int
+    gte: Int
+    lt: Int
+    lte: Int
+  }
+
+  """Float comparison filter operators"""
+  input FloatComparisonFilter {
+    eq: Float
+    gt: Float
+    gte: Float
+    lt: Float
+    lte: Float
+  }
+
+  """Structured where filter for inventory items"""
+  input InventoryWhereInput {
+    sku: StringComparisonFilter
+    name: StringComparisonFilter
+    warehouseId: ID
+    category: ProductCategory
+    inStock: Boolean
+    availableQuantity: IntComparisonFilter
+    unitPrice: FloatComparisonFilter
+    AND: [InventoryWhereInput!]
+    OR: [InventoryWhereInput!]
+  }
+
+  """OrderBy clause for inventory items"""
+  input InventoryOrderByInput {
+    field: InventorySortField!
+    direction: SortDirection! = ASC
+  }
+
+  """Structured where filter for customer orders"""
+  input OrderWhereInput {
+    id: StringComparisonFilter
+    customerId: StringComparisonFilter
+    status: String
+    currency: String
+    totalAmount: FloatComparisonFilter
+    AND: [OrderWhereInput!]
+    OR: [OrderWhereInput!]
+  }
+
+  """OrderBy clause for customer orders"""
+  input OrderOrderByInput {
+    field: OrderSortField!
+    direction: SortDirection! = ASC
+  }
+
+  """Groupable dimensions on InventoryItem"""
+  enum InventoryGroupField {
+    CATEGORY
+    WAREHOUSE_ID
+    IN_STOCK
+  }
+
+  """Groupable dimensions on OrderGql"""
+  enum OrderGroupField {
+    STATUS
+    CURRENCY
+    CUSTOMER_ID
+  }
+
+  """Aggregated metrics for a grouped inventory bucket"""
+  type InventoryGroupSummary {
+    groupKey: String!
+    category: ProductCategory
+    warehouseId: ID
+    inStock: Boolean
+    count: Int!
+    totalAvailableQuantity: Int!
+    totalReservedQuantity: Int!
+    avgUnitPrice: Float!
+    minUnitPrice: Float!
+    maxUnitPrice: Float!
+    items: [InventoryItem!]!
+  }
+
+  """Aggregated metrics for a grouped customer order bucket"""
+  type OrderGroupSummary {
+    groupKey: String!
+    status: String
+    currency: String
+    customerId: String
+    count: Int!
+    totalAmountSum: Float!
+    avgTotalAmount: Float!
+    orders: [OrderGql!]!
+  }
+
   """Input payload for adjusting SKU inventory stock"""
   input AdjustStockInput {
     sku: ID!
@@ -171,11 +299,13 @@ export const SAMPLE_GRAPHQL_SDL = `
     """Look up a single inventory item by SKU and optional warehouse ID"""
     inventoryItem(sku: ID!, warehouseId: ID): InventoryItem
 
-    """List inventory items with optional filtering by warehouse, category, or stock status"""
+    """List inventory items with optional filtering (where), sorting (orderBy), warehouse, category, or stock status"""
     inventoryItems(
       warehouseId: ID
       category: ProductCategory
       inStockOnly: Boolean
+      where: InventoryWhereInput
+      orderBy: [InventoryOrderByInput!]
       limit: Int = 20
     ): [InventoryItem!]!
 
@@ -185,14 +315,31 @@ export const SAMPLE_GRAPHQL_SDL = `
     """Get a single warehouse by ID"""
     warehouse(id: ID!): Warehouse
 
-    """List customer orders from GraphQL"""
-    orders(status: String, limit: Int = 25): [OrderGql!]!
+    """List customer orders from GraphQL with optional where filter and orderBy sorting"""
+    orders(
+      status: String
+      where: OrderWhereInput
+      orderBy: [OrderOrderByInput!]
+      limit: Int = 25
+    ): [OrderGql!]!
 
     """Get a customer order by ID"""
     order(id: ID!): OrderGql
 
     """Search across inventory items, warehouses, and orders"""
     searchCatalog(text: String!): [SearchResult!]!
+
+    """Group inventory items by category, warehouseId, or inStock with aggregated counts, sums, and averages"""
+    inventorySummaryByGroup(
+      groupBy: [InventoryGroupField!]!
+      where: InventoryWhereInput
+    ): [InventoryGroupSummary!]!
+
+    """Group customer orders by status, currency, or customerId with aggregated counts and revenue totals"""
+    ordersSummaryByGroup(
+      groupBy: [OrderGroupField!]!
+      where: OrderWhereInput
+    ): [OrderGroupSummary!]!
   }
 
   type Mutation {
@@ -456,6 +603,192 @@ function parseMultipartForm(bodyBuffer: Buffer, contentTypeHeader: string): Pars
   return parts;
 }
 
+function matchesStringFilter(val: string, filter: Record<string, unknown>): boolean {
+  const lowerVal = val.toLowerCase();
+  if (typeof filter.eq === 'string' && val !== filter.eq) return false;
+  if (
+    typeof filter.contains === 'string' &&
+    !lowerVal.includes(filter.contains.toLowerCase())
+  ) {
+    return false;
+  }
+  if (
+    typeof filter.startsWith === 'string' &&
+    !lowerVal.startsWith(filter.startsWith.toLowerCase())
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function matchesNumberFilter(val: number, filter: Record<string, unknown>): boolean {
+  if (typeof filter.eq === 'number' && val !== filter.eq) return false;
+  if (typeof filter.gt === 'number' && !(val > filter.gt)) return false;
+  if (typeof filter.gte === 'number' && !(val >= filter.gte)) return false;
+  if (typeof filter.lt === 'number' && !(val < filter.lt)) return false;
+  if (typeof filter.lte === 'number' && !(val <= filter.lte)) return false;
+  return true;
+}
+
+function matchesInventoryWhere(
+  item: InventoryItemRecord,
+  where: Record<string, unknown>,
+): boolean {
+  if (where.sku && typeof where.sku === 'object') {
+    if (!matchesStringFilter(item.sku, where.sku as Record<string, unknown>)) return false;
+  }
+  if (where.name && typeof where.name === 'object') {
+    if (!matchesStringFilter(item.name, where.name as Record<string, unknown>)) return false;
+  }
+  if (typeof where.warehouseId === 'string' && item.warehouseId !== where.warehouseId) {
+    return false;
+  }
+  if (typeof where.category === 'string' && item.category !== where.category) {
+    return false;
+  }
+  if (typeof where.inStock === 'boolean' && item.inStock !== where.inStock) {
+    return false;
+  }
+  if (where.availableQuantity && typeof where.availableQuantity === 'object') {
+    if (
+      !matchesNumberFilter(
+        item.availableQuantity,
+        where.availableQuantity as Record<string, unknown>,
+      )
+    ) {
+      return false;
+    }
+  }
+  if (where.unitPrice && typeof where.unitPrice === 'object') {
+    if (!matchesNumberFilter(item.unitPrice, where.unitPrice as Record<string, unknown>)) {
+      return false;
+    }
+  }
+  if (Array.isArray(where.AND)) {
+    for (const sub of where.AND as Array<Record<string, unknown>>) {
+      if (!matchesInventoryWhere(item, sub)) return false;
+    }
+  }
+  if (Array.isArray(where.OR) && where.OR.length > 0) {
+    const anyMatch = (where.OR as Array<Record<string, unknown>>).some(sub =>
+      matchesInventoryWhere(item, sub),
+    );
+    if (!anyMatch) return false;
+  }
+  return true;
+}
+
+function compareInventoryByOrder(
+  a: InventoryItemRecord,
+  b: InventoryItemRecord,
+  orderBy: Array<{ field: string; direction?: 'ASC' | 'DESC' }>,
+): number {
+  for (const rule of orderBy) {
+    const dir = rule.direction === 'DESC' ? -1 : 1;
+    let cmp = 0;
+    switch (rule.field) {
+      case 'SKU':
+        cmp = a.sku.localeCompare(b.sku);
+        break;
+      case 'NAME':
+        cmp = a.name.localeCompare(b.name);
+        break;
+      case 'CATEGORY':
+        cmp = a.category.localeCompare(b.category);
+        break;
+      case 'AVAILABLE_QUANTITY':
+        cmp = a.availableQuantity - b.availableQuantity;
+        break;
+      case 'UNIT_PRICE':
+        cmp = a.unitPrice - b.unitPrice;
+        break;
+      case 'UPDATED_AT':
+        cmp = a.updatedAt.localeCompare(b.updatedAt);
+        break;
+    }
+    if (cmp !== 0) return cmp * dir;
+  }
+  return 0;
+}
+
+function matchesOrderWhere(ord: OrderRecord, where: Record<string, unknown>): boolean {
+  if (where.id && typeof where.id === 'object') {
+    if (!matchesStringFilter(ord.id, where.id as Record<string, unknown>)) return false;
+  }
+  if (where.customerId && typeof where.customerId === 'object') {
+    if (!matchesStringFilter(ord.customerId, where.customerId as Record<string, unknown>)) {
+      return false;
+    }
+  }
+  if (
+    typeof where.status === 'string' &&
+    ord.status.toLowerCase() !== where.status.toLowerCase()
+  ) {
+    return false;
+  }
+  if (
+    typeof where.currency === 'string' &&
+    ord.currency.toLowerCase() !== where.currency.toLowerCase()
+  ) {
+    return false;
+  }
+  if (where.totalAmount && typeof where.totalAmount === 'object') {
+    if (
+      !matchesNumberFilter(
+        ord.totalAmount,
+        where.totalAmount as Record<string, unknown>,
+      )
+    ) {
+      return false;
+    }
+  }
+  if (Array.isArray(where.AND)) {
+    for (const sub of where.AND as Array<Record<string, unknown>>) {
+      if (!matchesOrderWhere(ord, sub)) return false;
+    }
+  }
+  if (Array.isArray(where.OR) && where.OR.length > 0) {
+    const anyMatch = (where.OR as Array<Record<string, unknown>>).some(sub =>
+      matchesOrderWhere(ord, sub),
+    );
+    if (!anyMatch) return false;
+  }
+  return true;
+}
+
+function compareOrderByOrder(
+  a: OrderRecord,
+  b: OrderRecord,
+  orderBy: Array<{ field: string; direction?: 'ASC' | 'DESC' }>,
+): number {
+  for (const rule of orderBy) {
+    const dir = rule.direction === 'DESC' ? -1 : 1;
+    let cmp = 0;
+    switch (rule.field) {
+      case 'ID':
+        cmp = a.id.localeCompare(b.id);
+        break;
+      case 'CUSTOMER_ID':
+        cmp = a.customerId.localeCompare(b.customerId);
+        break;
+      case 'STATUS':
+        cmp = a.status.localeCompare(b.status);
+        break;
+      case 'TOTAL_AMOUNT':
+        cmp = a.totalAmount - b.totalAmount;
+        break;
+      case 'REQUESTED_AT':
+        cmp = a.requestedAt.localeCompare(b.requestedAt);
+        break;
+      case 'UPDATED_AT':
+        cmp = a.updatedAt.localeCompare(b.updatedAt);
+        break;
+    }
+    if (cmp !== 0) return cmp * dir;
+  }
+  return 0;
+}
+
 function buildGraphQLRootValue(store: SampleApiStore, schema: GraphQLSchema) {
   // Attach __resolveType for CatalogNode interface & SearchResult union
   const catalogNodeType = schema.getType('CatalogNode');
@@ -508,17 +841,27 @@ function buildGraphQLRootValue(store: SampleApiStore, schema: GraphQLSchema) {
       warehouseId,
       category,
       inStockOnly,
+      where,
+      orderBy,
       limit = 20,
     }: {
       warehouseId?: string;
       category?: string;
       inStockOnly?: boolean;
+      where?: Record<string, unknown>;
+      orderBy?: Array<{ field: string; direction?: 'ASC' | 'DESC' }>;
       limit?: number;
     }) => {
       let list = Array.from(store.inventory.values());
       if (warehouseId) list = list.filter(i => i.warehouseId === warehouseId);
       if (category) list = list.filter(i => i.category === category);
       if (inStockOnly) list = list.filter(i => i.inStock && i.availableQuantity > 0);
+      if (where) {
+        list = list.filter(item => matchesInventoryWhere(item, where));
+      }
+      if (Array.isArray(orderBy) && orderBy.length > 0) {
+        list = [...list].sort((a, b) => compareInventoryByOrder(a, b, orderBy));
+      }
       return list.slice(0, limit).map(enrichInventoryItem);
     },
 
@@ -533,16 +876,134 @@ function buildGraphQLRootValue(store: SampleApiStore, schema: GraphQLSchema) {
       return wh ? enrichWarehouse(wh) : null;
     },
 
-    orders: ({ status, limit = 25 }: { status?: string; limit?: number }) => {
+    orders: ({
+      status,
+      where,
+      orderBy,
+      limit = 25,
+    }: {
+      status?: string;
+      where?: Record<string, unknown>;
+      orderBy?: Array<{ field: string; direction?: 'ASC' | 'DESC' }>;
+      limit?: number;
+    }) => {
       let list = Array.from(store.orders.values());
       if (status) {
         list = list.filter(o => o.status.toLowerCase() === status.toLowerCase());
+      }
+      if (where) {
+        list = list.filter(ord => matchesOrderWhere(ord, where));
+      }
+      if (Array.isArray(orderBy) && orderBy.length > 0) {
+        list = [...list].sort((a, b) => compareOrderByOrder(a, b, orderBy));
       }
       return list.slice(0, limit);
     },
 
     order: ({ id }: { id: string }) => {
       return store.orders.get(id) ?? null;
+    },
+
+    inventorySummaryByGroup: ({
+      groupBy,
+      where,
+    }: {
+      groupBy: Array<'CATEGORY' | 'WAREHOUSE_ID' | 'IN_STOCK'>;
+      where?: Record<string, unknown>;
+    }) => {
+      let list = Array.from(store.inventory.values());
+      if (where) {
+        list = list.filter(item => matchesInventoryWhere(item, where));
+      }
+
+      const buckets = new Map<string, InventoryItemRecord[]>();
+      for (const item of list) {
+        const keyParts = groupBy.map(dim => {
+          if (dim === 'CATEGORY') return item.category;
+          if (dim === 'WAREHOUSE_ID') return item.warehouseId;
+          return String(item.inStock);
+        });
+        const bucketKey = keyParts.join(' | ');
+        const arr = buckets.get(bucketKey) ?? [];
+        arr.push(item);
+        buckets.set(bucketKey, arr);
+      }
+
+      return Array.from(buckets.entries()).map(([groupKey, items]) => {
+        const first = items[0];
+        const prices = items.map(i => i.unitPrice);
+        const totalAvailableQuantity = items.reduce(
+          (sum, i) => sum + i.availableQuantity,
+          0,
+        );
+        const totalReservedQuantity = items.reduce(
+          (sum, i) => sum + i.reservedQuantity,
+          0,
+        );
+        const avgUnitPrice =
+          prices.reduce((sum, p) => sum + p, 0) / Math.max(1, prices.length);
+
+        return {
+          groupKey,
+          category: groupBy.includes('CATEGORY') ? first?.category ?? null : null,
+          warehouseId: groupBy.includes('WAREHOUSE_ID')
+            ? first?.warehouseId ?? null
+            : null,
+          inStock: groupBy.includes('IN_STOCK') ? first?.inStock ?? null : null,
+          count: items.length,
+          totalAvailableQuantity,
+          totalReservedQuantity,
+          avgUnitPrice: Number(avgUnitPrice.toFixed(2)),
+          minUnitPrice: Math.min(...prices),
+          maxUnitPrice: Math.max(...prices),
+          items: items.map(enrichInventoryItem),
+        };
+      });
+    },
+
+    ordersSummaryByGroup: ({
+      groupBy,
+      where,
+    }: {
+      groupBy: Array<'STATUS' | 'CURRENCY' | 'CUSTOMER_ID'>;
+      where?: Record<string, unknown>;
+    }) => {
+      let list = Array.from(store.orders.values());
+      if (where) {
+        list = list.filter(ord => matchesOrderWhere(ord, where));
+      }
+
+      const buckets = new Map<string, OrderRecord[]>();
+      for (const ord of list) {
+        const keyParts = groupBy.map(dim => {
+          if (dim === 'STATUS') return ord.status;
+          if (dim === 'CURRENCY') return ord.currency;
+          return ord.customerId;
+        });
+        const bucketKey = keyParts.join(' | ');
+        const arr = buckets.get(bucketKey) ?? [];
+        arr.push(ord);
+        buckets.set(bucketKey, arr);
+      }
+
+      return Array.from(buckets.entries()).map(([groupKey, orders]) => {
+        const first = orders[0];
+        const totalAmountSum = orders.reduce((sum, o) => sum + o.totalAmount, 0);
+        const avgTotalAmount = totalAmountSum / Math.max(1, orders.length);
+
+        return {
+          groupKey,
+          status: groupBy.includes('STATUS') ? first?.status ?? null : null,
+          currency: groupBy.includes('CURRENCY') ? first?.currency ?? null : null,
+          customerId: groupBy.includes('CUSTOMER_ID')
+            ? first?.customerId ?? null
+            : null,
+          count: orders.length,
+          totalAmountSum: Number(totalAmountSum.toFixed(2)),
+          avgTotalAmount: Number(avgTotalAmount.toFixed(2)),
+          orders,
+        };
+      });
     },
 
     searchCatalog: ({ text }: { text: string }) => {

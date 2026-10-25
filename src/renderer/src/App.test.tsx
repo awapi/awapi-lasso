@@ -27,6 +27,10 @@ describe('App shell', () => {
       refreshOAuth2Token: vi.fn(),
       getCachedOAuth2Token: vi.fn().mockResolvedValue(null),
       clearOAuth2Token: vi.fn().mockResolvedValue(false),
+      introspectGraphQLSchema: vi.fn().mockResolvedValue({ ok: false, error: 'Mocked offline' }),
+      loadLocalGraphQLSchema: vi.fn().mockResolvedValue({ ok: false, error: 'Mocked offline' }),
+      getCachedGraphQLSchema: vi.fn().mockResolvedValue(null),
+      openGraphQLSchemaFileDialog: vi.fn().mockResolvedValue(null),
       onCollectionOpenedFromOs: vi.fn((cb: (filePath: string) => void) => {
         osOpenCallback = cb;
         return () => {
@@ -172,5 +176,85 @@ describe('App shell', () => {
     // Reopen closed tab restores it
     fireEvent.click(screen.getByTestId('reopen-closed-tab-btn'));
     expect(screen.getByTestId('request-tab-tab_initial')).toBeInTheDocument();
+  });
+
+  it('switches to GraphQLWorkspace when protocol is changed to GRAPHQL in the URL bar', async () => {
+    render(<App />);
+    const methodSelect = screen.getByTestId('method-select');
+    fireEvent.change(methodSelect, { target: { value: 'GRAPHQL' } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('graphql-workspace')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps RequestUrlBar and section tabs fixed above the scrollable configuration panel', () => {
+    render(<App />);
+    const stickyHeader = screen.getByTestId('request-sticky-header');
+    const scrollContainer = screen.getByTestId('request-config-scroll-container');
+    const urlBar = screen.getByTestId('request-url-bar');
+    const sendBtn = screen.getByTestId('send-request-btn');
+
+    expect(stickyHeader).toContainElement(urlBar);
+    expect(stickyHeader).toContainElement(sendBtn);
+    expect(stickyHeader).toContainElement(screen.getByTestId('req-config-tab-params'));
+    expect(scrollContainer).not.toContainElement(urlBar);
+    expect(scrollContainer).toHaveStyle({ overflowY: 'auto' });
+  });
+
+  it('prompts to Save, Don’t Save, or Cancel when closing a dirty request tab', async () => {
+    render(<App />);
+
+    // Open a collection so we can verify saving to disk when Save is clicked
+    fireEvent.click(screen.getByTestId('open-collection-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list')).toHaveTextContent(
+        '/Users/me/apis/payments.awjc',
+      );
+    });
+
+    // Edit the active tab URL to make the tab dirty
+    const urlInput = screen.getByTestId('url-input');
+    fireEvent.change(urlInput, { target: { value: 'https://api.example.com/v1/modified' } });
+    expect(screen.getByTestId('tab-dirty-tab_initial')).toBeInTheDocument();
+
+    // Attempt to close the dirty tab -> confirmation modal appears
+    fireEvent.click(screen.getByTestId('tab-close-btn-tab_initial'));
+    expect(screen.getByTestId('unsaved-tab-close-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('request-tab-tab_initial')).toBeInTheDocument();
+
+    // Clicking Cancel keeps the tab open and dirty
+    fireEvent.click(screen.getByTestId('unsaved-modal-cancel-btn'));
+    expect(screen.queryByTestId('unsaved-tab-close-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('request-tab-tab_initial')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-dirty-tab_initial')).toBeInTheDocument();
+
+    // Attempt to close again and click Save -> saves collection and closes tab
+    fireEvent.click(screen.getByTestId('tab-close-btn-tab_initial'));
+    fireEvent.click(screen.getByTestId('unsaved-modal-save-btn'));
+
+    await waitFor(() => {
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('request-tab-tab_initial')).not.toBeInTheDocument();
+    });
+  });
+
+  it('reverts unsaved changes when Don’t Save is chosen on closing a dirty tab', async () => {
+    render(<App />);
+
+    const urlInput = screen.getByTestId('url-input');
+    fireEvent.change(urlInput, { target: { value: 'https://api.example.com/v1/unsaved' } });
+    expect(screen.getByTestId('tab-dirty-tab_initial')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('tab-close-btn-tab_initial'));
+    expect(screen.getByTestId('unsaved-tab-close-modal')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('unsaved-modal-discard-btn'));
+    expect(screen.queryByTestId('request-tab-tab_initial')).not.toBeInTheDocument();
+    expect(window.electronAPI.saveCollection).not.toHaveBeenCalled();
+
+    // Reopening the closed tab restores the original saved URL
+    fireEvent.click(screen.getByTestId('reopen-closed-tab-btn'));
+    expect(screen.getByTestId('url-input')).toHaveValue('http://127.0.0.1:8080/v1/health');
   });
 });

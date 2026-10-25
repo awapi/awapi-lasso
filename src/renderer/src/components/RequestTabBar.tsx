@@ -8,6 +8,7 @@ export interface RequestWorkspaceTab {
   id: string;
   collectionPath: string | null;
   request: RequestItem;
+  savedRequest?: RequestItem;
   isDirty?: boolean;
 }
 

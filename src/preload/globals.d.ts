@@ -12,6 +12,13 @@ import type {
   OAuth2TokenExchangeResult,
   OAuth2TokenRecord,
 } from '../shared/oauth2Types';
+import type {
+  GraphQLCachedSchemaRecord,
+  GraphQLIntrospectRequest,
+  GraphQLLoadLocalSchemaRequest,
+  GraphQLSchemaCacheCoordinate,
+  GraphQLSchemaDiscoveryResult,
+} from '../main/graphqlIntrospection';
 
 declare global {
   interface Window {
@@ -69,6 +76,18 @@ declare global {
         coord: OAuth2TokenCoordinate,
       ) => Promise<OAuth2TokenRecord | null>;
       clearOAuth2Token: (coord: OAuth2TokenCoordinate) => Promise<boolean>;
+
+      /** GraphQL schema introspection, offline SDL/JSON import, and per-environment cache lookup. */
+      introspectGraphQLSchema: (
+        payload: GraphQLIntrospectRequest,
+      ) => Promise<GraphQLSchemaDiscoveryResult>;
+      loadLocalGraphQLSchema: (
+        payload: GraphQLLoadLocalSchemaRequest,
+      ) => Promise<GraphQLSchemaDiscoveryResult>;
+      getCachedGraphQLSchema: (
+        coord: GraphQLSchemaCacheCoordinate,
+      ) => Promise<GraphQLCachedSchemaRecord | null>;
+      openGraphQLSchemaFileDialog: () => Promise<string | null>;
 
       /** Subscribes to `.awjc` / `.awj` collection file paths opened from OS Finder/Explorer or CLI (`awlasso`). */
       onCollectionOpenedFromOs: (callback: (filePath: string) => void) => () => void;
