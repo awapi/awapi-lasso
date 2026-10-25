@@ -1,0 +1,14 @@
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  sharp: true
+
+overrides:
+  dompurify: ^3.4.17
+
+auditConfig:
+  ignoreGhsas:
+    # sprintf-js DoS: no patched release exists; only reached via electron-builder's
+    # build-time proxy logger (@electron/get > global-agent > roarr), not shipped in the app.
+    - GHSA-hp3w-g68c-fv3c

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "main" ]
+
+# A newer push to the same branch cancels its still-running CI (per event
+# type, so a PR run never cancels the branch's push run). main is never cancelled.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build_and_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: latest
+          run_install: false
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Security Audit
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm audit --audit-level=high
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Run Tests
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+  # Guards the justfile's per-OS recipes (bash on Linux/macOS, PowerShell on Windows).
+  justfile:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: latest
+          run_install: false
+
+      - name: Setup just
+        uses: extractions/setup-just@v3
+
+      - name: just install
+        run: just install
+
+      - name: just build
+        run: just build
+
+      - name: just _release-draft (exercises the OS shell)
+        run: just _release-draft 0.0.0
+
+      - name: Dry-run OS-specific recipes
+        shell: bash
+        run: |
+          just --dry-run package
+          just --dry-run publish 0.0.0
+          just --dry-run release 0.0.0 publish
+
+      - name: just clean
+        run: just clean

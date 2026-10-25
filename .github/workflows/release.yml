@@ -1,0 +1,66 @@
+name: Release Builds
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on version tags like v0.1.0
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+jobs:
+  release:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    # Needs to be able to create releases
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: latest
+          run_install: false
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build, Package, and Publish Electron App
+        run: pnpm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifacts (macOS/Linux)
+        uses: actions/upload-artifact@v7
+        if: matrix.os != 'windows-latest'
+        with:
+          name: awapi-lasso-${{ matrix.os }}
+          path: |
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+            release/*.zip
+            release/*.tar.gz
+          retention-days: 7
+
+      - name: Upload Artifacts (Windows)
+        uses: actions/upload-artifact@v7
+        if: matrix.os == 'windows-latest'
+        with:
+          name: awapi-lasso-${{ matrix.os }}
+          path: |
+            release\*.exe
+            release\*.msi
+            release\*.zip
+          retention-days: 7

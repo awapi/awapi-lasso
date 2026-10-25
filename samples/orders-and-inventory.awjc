@@ -1,0 +1,575 @@
+awapiLasso: "1.0"
+kind: Collection
+metadata:
+  id: col_orders_platform_01
+  name: Orders & Inventory API
+  description: REST and GraphQL endpoints for the Orders & Inventory service
+  createdAt: 2026-10-24T12:00:00Z
+  updatedAt: 2026-10-25T03:49:24.219Z
+defaults:
+  baseUrl: "{{baseUrl}}"
+  timeoutMs: 30000
+  followRedirects: true
+  verifySsl: true
+  headers:
+    - key: Accept
+      value: application/json
+      enabled: true
+    - key: X-Client-App
+      value: AwapiLasso/1.0
+      enabled: true
+  auth:
+    type: oauth2
+    oauth2:
+      grantType: client_credentials
+      accessTokenUrl: "{{authBaseUrl}}/oauth/token"
+      clientId: "{{clientId}}"
+      clientSecret: "{{clientSecret}}"
+      scope: orders:read orders:write
+      clientAuthMethod: basic_header
+      tokenHeaderPrefix: Bearer
+      autoRefresh: true
+      extraParams:
+        - key: audience
+          value: https://api.example.com
+          enabled: true
+authProfiles:
+  - id: auth_service_cc
+    name: Service Account (Client Credentials)
+    type: oauth2
+    oauth2:
+      grantType: client_credentials
+      accessTokenUrl: "{{authBaseUrl}}/oauth/token"
+      clientId: "{{clientId}}"
+      clientSecret: "{{clientSecret}}"
+      scope: orders:read orders:write
+      clientAuthMethod: basic_header
+      autoRefresh: true
+  - id: auth_user_password
+    name: User Login (OAuth2 Password Grant)
+    type: oauth2
+    oauth2:
+      grantType: password
+      accessTokenUrl: "{{authBaseUrl}}/oauth/token"
+      clientId: "{{clientId}}"
+      clientSecret: "{{clientSecret}}"
+      username: "{{apiUsername}}"
+      password: "{{apiPassword}}"
+      scope: openid profile orders:admin
+      clientAuthMethod: request_body
+      autoRefresh: true
+variables:
+  - key: apiVersion
+    value: v1
+    enabled: true
+    description: Default API version path segment
+  - key: lastOrderId
+    value: ord_1001
+    enabled: true
+    description: Default order ID (updated dynamically when Create Order runs)
+activeEnvironment: local
+environments:
+  - id: env_local
+    name: local
+    color: "#22c55e"
+    variables:
+      - key: baseUrl
+        value: http://127.0.0.1:8080
+        enabled: true
+      - key: authBaseUrl
+        value: http://127.0.0.1:8080
+        enabled: true
+      - key: clientId
+        value: local-dev-client
+        enabled: true
+      - key: clientSecret
+        secret: true
+        enabled: true
+        description: Stored in OS Keychain / local secrets sidecar
+      - key: apiUsername
+        value: admin@example.local
+        enabled: true
+      - key: apiPassword
+        secret: true
+        enabled: true
+  - id: env_production
+    name: production
+    color: "#ef4444"
+    variables:
+      - key: baseUrl
+        value: https://api.example.com
+        enabled: true
+      - key: authBaseUrl
+        value: https://auth.example.com
+        enabled: true
+      - key: clientId
+        value: prod-orders-client
+        enabled: true
+      - key: clientSecret
+        secret: true
+        enabled: true
+      - key: apiUsername
+        value: ops@example.com
+        enabled: true
+      - key: apiPassword
+        secret: true
+        enabled: true
+items:
+  - kind: folder
+    id: fld_orders
+    name: Orders REST API
+    description: Full CRUD endpoints for customer orders (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+    auth:
+      type: inherit
+    headers: []
+    items:
+      - kind: request
+        id: req_health_check
+        name: Health Check
+        protocol: http
+        method: GET
+        url: "{{baseUrl}}/{{apiVersion}}/health"
+        auth:
+          type: none
+        body:
+          mode: none
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.status
+            operator: equals
+            expected: ok
+      - kind: request
+        id: req_list_orders
+        name: List Orders (GET)
+        protocol: http
+        method: GET
+        url: "{{baseUrl}}/{{apiVersion}}/orders"
+        queryParams:
+          - key: status
+            value: pending
+            enabled: true
+            description: Filter by order status
+          - key: limit
+            value: "25"
+            enabled: true
+        headers:
+          - key: X-Correlation-Id
+            value: "{{$uuid}}"
+            enabled: true
+        auth:
+          type: inherit
+        body:
+          mode: none
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: responseTime
+            operator: lessThan
+            expected: 1000
+          - target: jsonpath
+            path: $.data
+            operator: isArray
+      - kind: request
+        id: req_create_order
+        name: Create Order (POST)
+        protocol: http
+        method: POST
+        url: "{{baseUrl}}/{{apiVersion}}/orders"
+        headers:
+          - key: Content-Type
+            value: application/json
+            enabled: true
+        auth:
+          type: profile
+          profileId: auth_user_password
+        body:
+          mode: json
+          content: |
+            {
+              "customerId": "cust_901",
+              "currency": "USD",
+              "requestedAt": "{{$isoTimestamp}}",
+              "items": [
+                {
+                  "sku": "SKU-100",
+                  "quantity": 2
+                }
+              ]
+            }
+        captures:
+          - variable: lastOrderId
+            scope: environment
+            source: jsonpath
+            expression: $.data.id
+        assertions:
+          - target: status
+            operator: in
+            expected:
+              - 200
+              - 201
+          - target: jsonpath
+            path: $.data.id
+            operator: isNotEmpty
+      - kind: request
+        id: req_get_order_by_id
+        name: Get Order by ID (GET)
+        protocol: http
+        method: GET
+        url: "{{baseUrl}}/{{apiVersion}}/orders/:orderId"
+        pathParams:
+          - key: orderId
+            value: "{{lastOrderId}}"
+            description: Order ID captured from Create Order
+        auth:
+          type: inherit
+        body:
+          mode: none
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.id
+            operator: isNotEmpty
+      - kind: request
+        id: req_replace_order
+        name: Replace Order (PUT)
+        protocol: http
+        method: PUT
+        url: "{{baseUrl}}/{{apiVersion}}/orders/:orderId"
+        pathParams:
+          - key: orderId
+            value: "{{lastOrderId}}"
+        headers:
+          - key: Content-Type
+            value: application/json
+            enabled: true
+        auth:
+          type: inherit
+        body:
+          mode: json
+          content: |
+            {
+              "customerId": "cust_901",
+              "status": "processing",
+              "currency": "USD",
+              "notes": "Updated full order via PUT",
+              "items": [
+                {
+                  "sku": "SKU-100",
+                  "quantity": 3
+                },
+                {
+                  "sku": "SKU-200",
+                  "quantity": 1
+                }
+              ]
+            }
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.status
+            operator: equals
+            expected: processing
+      - kind: request
+        id: req_patch_order_status
+        name: Update Order Status (PATCH)
+        protocol: http
+        method: PATCH
+        url: "{{baseUrl}}/{{apiVersion}}/orders/:orderId"
+        pathParams:
+          - key: orderId
+            value: "{{lastOrderId}}"
+        headers:
+          - key: Content-Type
+            value: application/json
+            enabled: true
+        auth:
+          type: inherit
+        body:
+          mode: json
+          content: |
+            {
+              "status": "shipped",
+              "notes": "Dispatched via express carrier"
+            }
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.status
+            operator: equals
+            expected: shipped
+      - kind: request
+        id: req_upload_invoice
+        name: Upload Invoice Attachment (Multipart POST)
+        protocol: http
+        method: POST
+        url: "{{baseUrl}}/{{apiVersion}}/orders/:orderId/attachments"
+        pathParams:
+          - key: orderId
+            value: "{{lastOrderId}}"
+        auth:
+          type: inherit
+        body:
+          mode: multipart-form
+          formData:
+            - key: documentType
+              type: text
+              value: invoice
+              enabled: true
+            - key: file
+              type: file
+              filePath: ./samples/invoice.pdf
+              enabled: true
+        assertions:
+          - target: status
+            operator: equals
+            expected: 201
+          - target: jsonpath
+            path: $.data.documentType
+            operator: equals
+            expected: invoice
+      - kind: request
+        id: req_head_orders
+        name: Check Orders Headers (HEAD)
+        protocol: http
+        method: HEAD
+        url: "{{baseUrl}}/{{apiVersion}}/orders"
+        auth:
+          type: inherit
+        body:
+          mode: none
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: header
+            headerName: x-total-count
+            operator: isDefined
+      - kind: request
+        id: req_options_orders
+        name: Inspect Allowed Methods (OPTIONS)
+        protocol: http
+        method: OPTIONS
+        url: "{{baseUrl}}/{{apiVersion}}/orders"
+        auth:
+          type: none
+        body:
+          mode: none
+        assertions:
+          - target: status
+            operator: equals
+            expected: 204
+          - target: header
+            headerName: allow
+            operator: contains
+            expected: DELETE
+      - kind: request
+        id: req_delete_order
+        name: Delete Order (DELETE)
+        protocol: http
+        method: DELETE
+        url: "{{baseUrl}}/{{apiVersion}}/orders/:orderId"
+        pathParams:
+          - key: orderId
+            value: "{{lastOrderId}}"
+        auth:
+          type: inherit
+        body:
+          mode: none
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.deleted
+            operator: equals
+            expected: true
+  - kind: folder
+    id: fld_graphql
+    name: Inventory GraphQL API
+    description: GraphQL queries, mutations, and schema introspection against /graphql
+    items:
+      - kind: request
+        id: req_gql_inventory
+        name: Query Warehouse Stock
+        protocol: graphql
+        method: POST
+        url: "{{baseUrl}}/graphql"
+        auth:
+          type: inherit
+        graphql:
+          operationName: GetWarehouseStock
+          schemaSource:
+            mode: introspect
+            autoIntrospectOnOpen: true
+            localSchemaPath: ""
+          query: |
+            query GetWarehouseStock($sku: ID!, $warehouseId: ID) {
+              inventoryItem(sku: $sku, warehouseId: $warehouseId) {
+                sku
+                name
+                category
+                availableQuantity
+                reservedQuantity
+                unitPrice
+                inStock
+                updatedAt
+                warehouse {
+                  id
+                  name
+                  region
+                }
+              }
+            }
+          variables: |
+            {
+              "sku": "SKU-100",
+              "warehouseId": "WH-EAST-01"
+            }
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.errors
+            operator: isUndefined
+          - target: jsonpath
+            path: $.data.inventoryItem.sku
+            operator: equals
+            expected: SKU-100
+      - kind: request
+        id: req_gql_list_warehouses
+        name: List Warehouses & Stock
+        protocol: graphql
+        method: POST
+        url: "{{baseUrl}}/graphql"
+        auth:
+          type: inherit
+        graphql:
+          operationName: ListActiveWarehouses
+          schemaSource:
+            mode: introspect
+            autoIntrospectOnOpen: true
+            localSchemaPath: ./sample-api/schema.graphql
+          query: |
+            query ListActiveWarehouses($activeOnly: Boolean) {
+              warehouses(activeOnly: $activeOnly) {
+                id
+                name
+                region
+                capacity
+                active
+                items {
+                  sku
+                  name
+                  availableQuantity
+                }
+              }
+            }
+          variables: |
+            {
+              "activeOnly": true
+            }
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.warehouses
+            operator: isArray
+      - kind: request
+        id: req_gql_adjust_stock
+        name: Mutate Inventory Stock
+        protocol: graphql
+        method: POST
+        url: "{{baseUrl}}/graphql"
+        auth:
+          type: inherit
+        graphql:
+          operationName: AdjustStock
+          schemaSource:
+            mode: introspect
+            autoIntrospectOnOpen: true
+            localSchemaPath: ""
+          query: |
+            mutation AdjustStock($input: AdjustStockInput!) {
+              adjustInventoryStock(input: $input) {
+                sku
+                name
+                availableQuantity
+                reservedQuantity
+                inStock
+                updatedAt
+              }
+            }
+          variables: |
+            {
+              "input": {
+                "sku": "SKU-100",
+                "deltaAvailable": 10,
+                "deltaReserved": 2
+              }
+            }
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.adjustInventoryStock.sku
+            operator: equals
+            expected: SKU-100
+      - kind: request
+        id: req_gql_search_union
+        name: Search Catalog (Union & Inline Fragments)
+        protocol: graphql
+        method: POST
+        url: "{{baseUrl}}/graphql"
+        auth:
+          type: inherit
+        graphql:
+          operationName: SearchCatalog
+          schemaSource:
+            mode: introspect
+            autoIntrospectOnOpen: true
+            localSchemaPath: ""
+          query: |
+            query SearchCatalog($text: String!) {
+              searchCatalog(text: $text) {
+                __typename
+                ... on InventoryItem {
+                  sku
+                  name
+                  availableQuantity
+                }
+                ... on Warehouse {
+                  id
+                  name
+                  region
+                }
+                ... on OrderGql {
+                  id
+                  customerId
+                  status
+                }
+              }
+            }
+          variables: |
+            {
+              "text": "Keyboard"
+            }
+        assertions:
+          - target: status
+            operator: equals
+            expected: 200
+          - target: jsonpath
+            path: $.data.searchCatalog
+            operator: isArray

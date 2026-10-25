@@ -1,0 +1,133 @@
+"""Product category in the warehouse catalog"""
+enum ProductCategory {
+  ELECTRONICS
+  ACCESSORIES
+  HARDWARE
+  SOFTWARE
+}
+
+"""Order lifecycle status"""
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+"""Common interface for all catalog & warehouse entities"""
+interface CatalogNode {
+  id: ID!
+  updatedAt: String!
+}
+
+"""Physical fulfillment warehouse"""
+type Warehouse implements CatalogNode {
+  id: ID!
+  name: String!
+  region: String!
+  capacity: Int!
+  active: Boolean!
+  items: [InventoryItem!]!
+  updatedAt: String!
+}
+
+"""Tracked SKU stock item inside a warehouse"""
+type InventoryItem implements CatalogNode {
+  id: ID!
+  sku: ID!
+  name: String!
+  category: ProductCategory!
+  warehouseId: ID!
+  warehouse: Warehouse
+  availableQuantity: Int!
+  reservedQuantity: Int!
+  unitPrice: Float!
+  inStock: Boolean!
+  tags: [String!]!
+  updatedAt: String!
+  legacyCode: String @deprecated(reason: "Use sku instead")
+}
+
+"""Line item inside a customer order"""
+type OrderItemGql {
+  sku: ID!
+  name: String
+  quantity: Int!
+  unitPrice: Float!
+}
+
+"""Customer order exposed via GraphQL"""
+type OrderGql implements CatalogNode {
+  id: ID!
+  customerId: String!
+  status: String!
+  currency: String!
+  totalAmount: Float!
+  notes: String
+  requestedAt: String!
+  updatedAt: String!
+  items: [OrderItemGql!]!
+}
+
+"""Union result returned by global catalog search"""
+union SearchResult = InventoryItem | Warehouse | OrderGql
+
+"""Input payload for adjusting SKU inventory stock"""
+input AdjustStockInput {
+  sku: ID!
+  warehouseId: ID
+  deltaAvailable: Int!
+  deltaReserved: Int
+}
+
+"""Input payload for creating a new SKU in the catalog"""
+input CreateInventoryItemInput {
+  sku: ID!
+  name: String!
+  category: ProductCategory!
+  warehouseId: ID!
+  availableQuantity: Int!
+  reservedQuantity: Int
+  unitPrice: Float!
+  tags: [String!]
+}
+
+type Query {
+  """Look up a single inventory item by SKU and optional warehouse ID"""
+  inventoryItem(sku: ID!, warehouseId: ID): InventoryItem
+
+  """List inventory items with optional filtering by warehouse, category, or stock status"""
+  inventoryItems(
+    warehouseId: ID
+    category: ProductCategory
+    inStockOnly: Boolean
+    limit: Int = 20
+  ): [InventoryItem!]!
+
+  """List all fulfillment warehouses"""
+  warehouses(activeOnly: Boolean): [Warehouse!]!
+
+  """Get a single warehouse by ID"""
+  warehouse(id: ID!): Warehouse
+
+  """List customer orders from GraphQL"""
+  orders(status: String, limit: Int = 25): [OrderGql!]!
+
+  """Get a customer order by ID"""
+  order(id: ID!): OrderGql
+
+  """Search across inventory items, warehouses, and orders"""
+  searchCatalog(text: String!): [SearchResult!]!
+}
+
+type Mutation {
+  """Adjust available or reserved stock for a SKU"""
+  adjustInventoryStock(input: AdjustStockInput!): InventoryItem!
+
+  """Create a new inventory item in a warehouse"""
+  createInventoryItem(input: CreateInventoryItemInput!): InventoryItem!
+
+  """Update the status of an existing order"""
+  updateOrderStatus(id: ID!, status: String!): OrderGql
+}

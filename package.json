@@ -1,0 +1,149 @@
+{
+  "name": "awapi-lasso",
+  "version": "0.1.0",
+  "description": "A fast, lightweight, cross-platform HTTP, RESTful, and GraphQL client",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "vite",
+    "sample-api": "node sample-api/run.js",
+    "build": "cross-env NODE_ENV=production vite build",
+    "package": "cross-env NODE_ENV=production vite build && electron-builder",
+    "release": "cross-env NODE_ENV=production vite build && electron-builder --publish always",
+    "typecheck": "tsc --noEmit",
+    "icons": "node scripts/generate-icons.js"
+  },
+  "build": {
+    "appId": "com.awapi.awapilasso",
+    "productName": "AwapiLasso",
+    "publish": [
+      "github"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "fileAssociations": [
+      {
+        "ext": "awjc",
+        "name": "AwapiLasso Collection",
+        "description": "AwapiLasso API Collection File",
+        "mimeType": "application/x-awapi-lasso-collection",
+        "role": "Editor",
+        "icon": "build/icon"
+      },
+      {
+        "ext": "awj",
+        "name": "AwapiLasso Collection",
+        "description": "AwapiLasso API Collection File",
+        "mimeType": "application/x-awapi-lasso",
+        "role": "Editor",
+        "icon": "build/icon"
+      }
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": "-"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "msi"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}"
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "icon": "build/icon-512x512.png",
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "maintainer": "awapi <oyesil@gmail.com>"
+    },
+    "files": [
+      "dist/**/*",
+      "build/**/*"
+    ],
+    "npmRebuild": false
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/awapi/awapi-lasso.git"
+  },
+  "keywords": [
+    "api-client",
+    "http",
+    "rest",
+    "graphql",
+    "oauth2",
+    "yaml",
+    "electron"
+  ],
+  "author": "awapi <oyesil@gmail.com>",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/awapi/awapi-lasso/issues"
+  },
+  "homepage": "https://github.com/awapi/awapi-lasso#readme",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "sharp"
+    ]
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "graphql": "^16.10.0",
+    "lucide-react": "^1.55.0",
+    "monaco-editor": "^0.57.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "cross-env": "^10.1.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.1.2",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.35.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vite-plugin-electron": "1.1.2",
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^5.0.4"
+  }
+}

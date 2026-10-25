@@ -1,0 +1,114 @@
+import type { AwjcCollection } from '../shared/collectionSchema';
+import type { AppSettings, SessionState } from '../main/session';
+import type { ContextMenuStatus, ContextMenuUpdateResult } from '../main/contextMenu';
+import type { CliCommandStatus, CliCommandUpdateResult } from '../main/cliCommand';
+import type { SecretCoordinate } from '../main/secretStore';
+import type { OpenedCollectionPayload } from '../main/collectionFileService';
+import type { HttpResponseResult, PreparedHttpRequest } from '../shared/httpTypes';
+import type {
+  OAuth2GetTokenRequest,
+  OAuth2RefreshTokenRequest,
+  OAuth2TokenCoordinate,
+  OAuth2TokenExchangeResult,
+  OAuth2TokenRecord,
+} from '../shared/oauth2Types';
+
+declare global {
+  interface Window {
+    electronAPI: {
+      /** Opens a native dialog to pick one or more `.awjc` / `.awj` collection files (returns paths). */
+      openCollectionDialog: () => Promise<string[] | null>;
+      /** Opens a native dialog and parses/hydrates selected `.awjc` / `.awj` collections. */
+      openCollectionsWithDialog: () => Promise<OpenedCollectionPayload[] | null>;
+      /** Reads, parses, and hydrates a `.awjc` / `.awj` collection from a specific disk path. */
+      openCollectionFromPath: (filePath: string) => Promise<OpenedCollectionPayload>;
+      /** Saves a collection to `filePath` (stripping `secret: true` values into OS Keychain). */
+      saveCollection: (options: {
+        filePath: string;
+        collection: AwjcCollection;
+        format?: 'yaml' | 'json';
+      }) => Promise<{ filePath: string; serialized: string }>;
+      /** Prompts for a file location and saves the `.awjc` / `.awj` collection. */
+      saveCollectionAs: (options: {
+        defaultPath?: string;
+        collection: AwjcCollection;
+        format?: 'yaml' | 'json';
+      }) => Promise<{ filePath: string; serialized: string } | null>;
+      /** Synchronizes the list of open `.awjc` / `.awj` file paths being watched for external edits. */
+      watchCollectionPaths: (filePaths: string[]) => Promise<void>;
+      /** Subscribes to external file modifications on watched `.awjc` / `.awj` files. */
+      onCollectionExternalChange: (
+        callback: (payload: OpenedCollectionPayload) => void,
+      ) => () => void;
+
+      /** OS Keychain (`safeStorage`) & local sidecar secret operations. */
+      getSecret: (
+        coord: SecretCoordinate,
+        options?: { collectionFilePath?: string },
+      ) => Promise<string | null>;
+      setSecret: (coord: SecretCoordinate, value: string) => Promise<boolean>;
+      deleteSecret: (coord: SecretCoordinate) => Promise<boolean>;
+      getAllCollectionSecrets: (
+        collectionId: string,
+        options?: { collectionFilePath?: string },
+      ) => Promise<{
+        byScope: Record<string, Record<string, string>>;
+        flatByKey: Record<string, string>;
+      }>;
+
+      /** Outbound Main-process HTTP/HTTPS/GraphQL execution & in-flight cancellation. */
+      sendHttpRequest: (request: PreparedHttpRequest) => Promise<HttpResponseResult>;
+      cancelHttpRequest: (requestId: string) => Promise<boolean>;
+
+      /** OAuth 2.0 Token Manager operations (acquire, refresh, inspect cached, clear). */
+      getOAuth2Token: (request: OAuth2GetTokenRequest) => Promise<OAuth2TokenExchangeResult>;
+      refreshOAuth2Token: (
+        request: OAuth2RefreshTokenRequest,
+      ) => Promise<OAuth2TokenExchangeResult>;
+      getCachedOAuth2Token: (
+        coord: OAuth2TokenCoordinate,
+      ) => Promise<OAuth2TokenRecord | null>;
+      clearOAuth2Token: (coord: OAuth2TokenCoordinate) => Promise<boolean>;
+
+      /** Subscribes to `.awjc` / `.awj` collection file paths opened from OS Finder/Explorer or CLI (`awlasso`). */
+      onCollectionOpenedFromOs: (callback: (filePath: string) => void) => () => void;
+      /** Resolves the filesystem path for a dropped `File` object. */
+      getPathForFile: (file: File) => string;
+
+      /** Loads user preferences (theme, SSL verification default, request timeout, recent files). */
+      loadSettings: () => Promise<AppSettings>;
+      /** Saves partial user preferences and returns the merged settings. */
+      saveSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>;
+
+      getRecentFiles: () => Promise<string[]>;
+      addRecentFile: (filePath: string) => Promise<string[]>;
+      removeRecentFile: (filePath: string) => Promise<string[]>;
+      clearRecentFiles: () => Promise<void>;
+
+      saveSession: (session: SessionState) => Promise<boolean>;
+      loadSession: () => Promise<SessionState | null>;
+
+      /** Windows Explorer "Open with AwapiLasso" right-click context menu integration. */
+      getContextMenuStatus: () => Promise<ContextMenuStatus>;
+      setContextMenuEnabled: (enable: boolean) => Promise<ContextMenuUpdateResult>;
+
+      /** `awlasso` terminal CLI launcher installation status & toggle. */
+      getCliCommandStatus: () => Promise<CliCommandStatus>;
+      setCliCommandEnabled: (enable: boolean) => Promise<CliCommandUpdateResult>;
+
+      copyToClipboard: (text: string) => Promise<void>;
+      readClipboardText: () => Promise<string>;
+
+      checkForUpdates: () => Promise<void>;
+
+      /** Application menu event subscriptions. */
+      onMenuNewCollection: (callback: () => void) => () => void;
+      onMenuOpenCollection: (callback: () => void) => () => void;
+      onMenuSaveCollection: (callback: () => void) => () => void;
+      onMenuSaveCollectionAs: (callback: () => void) => () => void;
+      onMenuOpenSettings: (callback: () => void) => () => void;
+    };
+  }
+}
+
+export {};
