@@ -13,7 +13,7 @@ dist/
 dist-electron/
 out/
 # Build output (but keep icon assets used by electron-builder)
-build/
+build/*
 !build/icon.icns
 !build/icon.ico
 !build/icon.png

@@ -9,8 +9,8 @@
     "dev": "vite",
     "sample-api": "node sample-api/run.js",
     "build": "cross-env NODE_ENV=production vite build",
-    "package": "cross-env NODE_ENV=production vite build && electron-builder",
-    "release": "cross-env NODE_ENV=production vite build && electron-builder --publish always",
+    "package": "node scripts/generate-icons.js && cross-env NODE_ENV=production vite build && electron-builder",
+    "release": "node scripts/generate-icons.js && cross-env NODE_ENV=production vite build && electron-builder --publish always",
     "typecheck": "tsc --noEmit",
     "icons": "node scripts/generate-icons.js"
   },

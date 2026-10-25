@@ -18,6 +18,53 @@
 
 ---
 
+## 🛠️ Local Development, Packaging & Releasing on GitHub
+
+### 1. Local Development & Testing
+```bash
+# Install dependencies
+just install        # or: pnpm install
+
+# Start the app in dev mode + local Sample REST/GraphQL/OAuth2 API on port 8080
+just dev            # or: pnpm run dev
+
+# Run strict TypeScript check and Vitest suite
+just typecheck      # or: pnpm run typecheck
+just test-once      # or: pnpm run test
+```
+
+### 2. Generate Local Installation Packages (Current OS)
+To build the production bundle and package the native installer locally into `release/` without publishing to GitHub:
+```bash
+# Builds the installer into release/ (and opens the .dmg window on macOS)
+just package        # or: pnpm run package
+```
+- **macOS:** `release/AwapiLasso-<version>-<arch>.dmg` (After dragging `AwapiLasso.app` to `/Applications`, run `xattr -cr /Applications/AwapiLasso.app` once to clear Gatekeeper quarantine).
+- **Windows:** `release/AwapiLasso-<version>-<arch>-setup.exe` (NSIS) and `.msi`.
+- **Linux:** `release/AwapiLasso-<version>-<arch>.AppImage` and `.deb`.
+
+### 3. Build Multi-OS Installers & Publish Releases on GitHub
+Cross-platform installers (macOS `.dmg`, Windows `.exe`/`.msi`, Linux `.AppImage`/`.deb`) are built in parallel on GitHub Actions ([`.github/workflows/release.yml`](.github/workflows/release.yml)).
+
+#### Option A — From Terminal via `just` (Recommended)
+Requires the [GitHub CLI (`gh`)](https://cli.github.com/) authenticated (`gh auth login`). Choose a new version number (e.g., `0.1.1` or `0.2.0`):
+```bash
+# 1. Cut a Draft Release on GitHub (bumps package.json, commits, tags v0.1.1, and pushes to trigger GitHub Actions):
+just release 0.1.1
+
+# 2. Once the "Release Builds" GitHub Action finishes, publish the draft as Latest:
+just publish 0.1.1
+
+# Or do both in one command (waits for GitHub Actions to finish and auto-publishes):
+just release 0.1.1 publish
+```
+
+#### Option B — Directly in the GitHub Web UI
+1. **Trigger the Build:** Go to **GitHub → Actions → [Release Builds](https://github.com/awapi/awapi-lasso/actions/workflows/release.yml)** → click **Run workflow** → select `main` → click **Run workflow**.
+2. **Publish the Release:** Once the macOS, Windows, and Linux jobs complete, go to **GitHub → [Releases](https://github.com/awapi/awapi-lasso/releases)**, edit the generated **Draft** release, check **"Set as the latest release"**, and click **Publish release**.
+
+---
+
 ## 📚 Documentation & Specifications
 
 - 📋 [**Product & Technical Requirements (`docs/requirements.md`)**](docs/requirements.md) — Complete functional & non-functional requirements, architecture, and security model.
