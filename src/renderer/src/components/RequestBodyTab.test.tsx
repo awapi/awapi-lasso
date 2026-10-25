@@ -40,4 +40,15 @@ describe('RequestBodyTab', () => {
     });
     expect(screen.getByTestId('body-binary-path-input')).toHaveValue('/tmp/archive.tar.gz');
   });
+
+  it('stretches the body editor container to fill the available request panel height', () => {
+    render(<StatefulBodyTab />);
+    fireEvent.click(screen.getByTestId('body-mode-json'));
+
+    const tabRoot = screen.getByTestId('request-body-tab');
+    const editorContainer = screen.getByTestId('body-editor-container');
+
+    expect(tabRoot).toHaveStyle({ flex: '1', height: '100%' });
+    expect(editorContainer).toHaveStyle({ flex: '1' });
+  });
 });

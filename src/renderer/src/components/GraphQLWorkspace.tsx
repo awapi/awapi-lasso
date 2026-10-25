@@ -574,8 +574,9 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'column',
+        flex: 1,
         height: '100%',
-        minHeight: 340,
+        minHeight: 260,
         border: `1px solid ${colors.border}`,
         borderRadius: 6,
         overflow: 'hidden',

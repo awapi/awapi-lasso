@@ -1316,6 +1316,8 @@ const WorkspaceShell: React.FC = () => {
                           style={{
                             flex: 1,
                             minHeight: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
                             overflowY: 'auto',
                             padding: 12,
                           }}

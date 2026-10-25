@@ -118,7 +118,14 @@ export const RequestBodyTab: React.FC<RequestBodyTabProps> = ({ body, onChange }
   return (
     <div
       data-testid="request-body-tab"
-      style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        flex: 1,
+        minHeight: 0,
+        height: '100%',
+      }}
     >
       {/* Mode Selector Bar & Prettify Button */}
       <div
@@ -209,10 +216,13 @@ export const RequestBodyTab: React.FC<RequestBodyTabProps> = ({ body, onChange }
         <div
           data-testid="body-editor-container"
           style={{
+            flex: 1,
+            minHeight: 160,
+            display: 'flex',
+            flexDirection: 'column',
             border: `1px solid ${colors.border}`,
             borderRadius: 6,
             overflow: 'hidden',
-            minHeight: 220,
           }}
         >
           {isTestEnv ? (
@@ -223,29 +233,34 @@ export const RequestBodyTab: React.FC<RequestBodyTabProps> = ({ body, onChange }
               onChange={e => onChange({ ...body, content: e.target.value })}
               rows={10}
               style={{
+                flex: 1,
                 width: '100%',
+                height: '100%',
                 padding: 10,
                 border: 'none',
                 backgroundColor: colors.bgPrimary,
                 color: colors.textPrimary,
                 fontFamily: 'monospace',
                 fontSize: 12,
+                resize: 'none',
               }}
             />
           ) : (
-            <Editor
-              height="240px"
-              language={body.mode === 'text' ? 'plaintext' : body.mode}
-              theme={isLight ? 'light' : 'vs-dark'}
-              value={body.content ?? ''}
-              onChange={val => onChange({ ...body, content: val ?? '' })}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 12,
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-              }}
-            />
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <Editor
+                height="100%"
+                language={body.mode === 'text' ? 'plaintext' : body.mode}
+                theme={isLight ? 'light' : 'vs-dark'}
+                value={body.content ?? ''}
+                onChange={val => onChange({ ...body, content: val ?? '' })}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 12,
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                }}
+              />
+            </div>
           )}
         </div>
       )}
