@@ -54,6 +54,7 @@ AwapiLasso is designed around a clear philosophy: **deliver a fast, local-first,
 ### 5. Response Inspector, Captures & Assertions
 - **Detailed Metrics & Timing Breakdown:** Status code badge, total duration (`ms`) with phase breakdown (DNS, TCP, TLS, TTFB, Download), and payload size.
 - **Pretty, Raw & Visual Preview:** Monaco-powered formatted viewer, JSONPath live filter bar (`$.data.items[*]`), HTML sandbox preview, image/SVG rendering, and **Side-by-Side Response Diff View**.
+- **Pin & Copy Responses:** **Pin for Diff** toggles a baseline for the current request tab. While pinned, the same button shows **Pinned** with an accent-colored border, including after later requests. Send another request and select **Diff** to compare. Click **Pinned** to unpin and compare against the previous response again; click **Pin for Diff** to pin the current response. **Copy** copies the displayed body (including Pretty formatting or JSONPath filtering; Raw copies the original text), confirms success, and reports clipboard failures.
 - **No-Code Response Captures:** Extract values from JSON responses (`$.data.access_token`), headers, or cookies directly into environment/collection variables to chain requests effortlessly.
 - **Declarative Assertions:** Verify status codes, response times, headers, and JSONPath expressions with instant pass/fail feedback.
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import {
   CheckCircle2,
@@ -21,7 +21,7 @@ export interface ResponseInspectorProps {
   response: HttpResponseResult | null;
   previousResponse?: HttpResponseResult | null;
   pinnedResponse?: HttpResponseResult | null;
-  onPinResponse?: (response: HttpResponseResult) => void;
+  onPinResponse?: (response: HttpResponseResult | null) => void;
 }
 
 export function formatBytes(bytes: number): string {
@@ -53,10 +53,14 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
   const [bodyView, setBodyView] = useState<ResponseBodyViewMode>('pretty');
   const [jsonPathFilter, setJsonPathFilter] = useState<string>('');
   const [showTimingPopover, setShowTimingPopover] = useState<boolean>(false);
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const copyAttempt = useRef(0);
 
   const isTestEnv = typeof process !== 'undefined' && Boolean(process.env.VITEST);
 
   const baselineForDiff = pinnedResponse ?? previousResponse;
+  const isCurrentResponsePinned = Boolean(response && pinnedResponse === response);
 
   const displayedBody = useMemo(() => {
     if (!response) return '';
@@ -79,6 +83,40 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
       return pretty;
     }
   }, [response, bodyView, jsonPathFilter]);
+
+  useEffect(() => {
+    setCopyStatus('idle');
+    setCopyError(null);
+    return () => {
+      copyAttempt.current += 1;
+    };
+  }, [response, displayedBody]);
+
+  useEffect(() => {
+    if (copyStatus !== 'copied') return;
+    const timeout = setTimeout(() => setCopyStatus('idle'), 1800);
+    return () => clearTimeout(timeout);
+  }, [copyStatus]);
+
+  const handleCopy = async () => {
+    const attempt = ++copyAttempt.current;
+    setCopyStatus('copying');
+    setCopyError(null);
+    try {
+      if (window.electronAPI?.copyToClipboard) {
+        await window.electronAPI.copyToClipboard(displayedBody);
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(displayedBody);
+      } else {
+        throw new Error('Clipboard access is unavailable.');
+      }
+      if (attempt === copyAttempt.current) setCopyStatus('copied');
+    } catch (error) {
+      if (attempt !== copyAttempt.current) return;
+      setCopyStatus('error');
+      setCopyError(error instanceof Error ? error.message : 'Clipboard write failed.');
+    }
+  };
 
   if (!response) {
     return (
@@ -241,23 +279,26 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
             <button
               type="button"
               data-testid="pin-response-btn"
-              title="Pin current response as baseline for Side-by-Side Diff"
-              onClick={() => onPinResponse(response)}
+              title={pinnedResponse
+                ? 'Unpin baseline and compare with the previous response'
+                : 'Pin current response as baseline for Side-by-Side Diff'}
+              aria-pressed={Boolean(pinnedResponse)}
+              onClick={() => onPinResponse(pinnedResponse ? null : response)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
                 padding: '3px 8px',
                 borderRadius: 5,
-                border: `1px solid ${colors.border}`,
-                backgroundColor: colors.bgPrimary,
-                color: colors.textSecondary,
+                border: `1px solid ${pinnedResponse ? colors.accent : colors.border}`,
+                backgroundColor: pinnedResponse ? `${colors.accent}22` : colors.bgPrimary,
+                color: pinnedResponse ? colors.accent : colors.textSecondary,
                 fontSize: 11,
                 cursor: 'pointer',
               }}
             >
               <Pin size={11} />
-              Pin for Diff
+              {pinnedResponse ? 'Pinned' : 'Pin for Diff'}
             </button>
           )}
 
@@ -266,7 +307,9 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
             type="button"
             data-testid="copy-response-btn"
             title="Copy response body"
-            onClick={() => void window.electronAPI?.copyToClipboard?.(displayedBody)}
+            onClick={() => void handleCopy()}
+            disabled={copyStatus === 'copying'}
+            aria-live="polite"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -281,7 +324,7 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
             }}
           >
             <Copy size={11} />
-            Copy
+            {copyStatus === 'copied' ? 'Copied!' : copyStatus === 'copying' ? 'Copying...' : 'Copy'}
           </button>
 
           {/* Phase Timing Breakdown Popover */}
@@ -342,6 +385,19 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
           )}
         </div>
       </div>
+
+      {copyError && (
+        <div role="alert" style={{ padding: '6px 12px', fontSize: 12, color: colors.danger }}>
+          Could not copy response: {copyError}
+        </div>
+      )}
+      {pinnedResponse && (
+        <div role="status" style={{ padding: '6px 12px', fontSize: 12, color: colors.textSecondary }}>
+          {isCurrentResponsePinned
+            ? 'Response pinned. Send another request, then open Diff to compare. Click Pinned to unpin.'
+            : 'Diff uses your pinned response as the baseline. Click Pinned to unpin.'}
+        </div>
+      )}
 
       {/* Tab Content */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

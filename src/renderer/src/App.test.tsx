@@ -227,8 +227,8 @@ describe('App shell', () => {
     });
   });
 
-  it('sends an HTTP request from the URL bar and renders the response in ResponseInspector', async () => {
-    window.electronAPI.sendHttpRequest = vi.fn().mockResolvedValue({
+  it('sends requests, copies the body, and keeps a pinned diff baseline across later responses', async () => {
+    const result = {
       requestId: 'req_test',
       ok: true,
       finalUrl: 'https://api.example.com/v1/health',
@@ -250,7 +250,8 @@ describe('App shell', () => {
       captures: [],
       assertions: [],
       sentHeaders: {},
-    });
+    };
+    window.electronAPI.sendHttpRequest = vi.fn().mockResolvedValue(result);
 
     render(<App />);
     fireEvent.click(screen.getByTestId('send-request-btn'));
@@ -260,6 +261,31 @@ describe('App shell', () => {
       expect(screen.getByTestId('response-status-badge')).toHaveTextContent('200 OK');
       expect(screen.getByTestId('response-body-content')).toHaveTextContent('"status": "healthy"');
     });
+
+    fireEvent.click(screen.getByTestId('copy-response-btn'));
+    await waitFor(() => expect(screen.getByTestId('copy-response-btn')).toHaveTextContent('Copied!'));
+    expect(window.electronAPI.copyToClipboard).toHaveBeenCalledWith('{\n  "status": "healthy"\n}');
+    fireEvent.click(screen.getByTestId('pin-response-btn'));
+    expect(screen.getByTestId('pin-response-btn')).toHaveTextContent('Pinned');
+
+    for (const status of ['degraded', 'offline']) {
+      vi.mocked(window.electronAPI.sendHttpRequest).mockResolvedValue({
+        ...result,
+        body: JSON.stringify({ status }),
+      });
+      fireEvent.click(screen.getByTestId('send-request-btn'));
+      await waitFor(() => expect(screen.getByTestId('response-body-content')).toHaveTextContent(status));
+    }
+    fireEvent.click(screen.getByTestId('resp-body-mode-diff'));
+    expect(screen.getByTestId('diff-original-content')).toHaveTextContent('"status": "healthy"');
+    expect(screen.getByTestId('diff-modified-content')).toHaveTextContent('"status": "offline"');
+    fireEvent.click(screen.getByTestId('pin-response-btn'));
+    expect(screen.getByTestId('diff-original-content')).toHaveTextContent('"status": "degraded"');
+    expect(screen.getByTestId('diff-modified-content')).toHaveTextContent('"status": "offline"');
+    expect(screen.queryByTestId('unpin-response-btn')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pin-response-btn')).toHaveTextContent('Pin for Diff');
+    fireEvent.click(screen.getByTestId('pin-response-btn'));
+    expect(screen.getByTestId('diff-original-content')).toHaveTextContent('"status": "offline"');
   });
 
   it('closes the last standing tab (or Close All) to an empty workspace and allows creating or reopening a tab', async () => {
