@@ -30,6 +30,13 @@ import type {
   GitOperationResult,
   GitRevertRequest,
 } from '../shared/gitTypes';
+import type {
+  PtyCreateOptions,
+  PtyCreateResult,
+  PtyDataEvent,
+  PtyExitEvent,
+  TerminalChoices,
+} from '../shared/terminal';
 
 declare global {
   interface Window {
@@ -146,6 +153,23 @@ declare global {
       pushGit: (collectionFilePath: string) => Promise<GitOperationResult>;
       revertGitChanges: (request: GitRevertRequest) => Promise<GitOperationResult>;
 
+      /** Reveals `filePath` in OS Finder / Explorer. */
+      showItemInFolder: (filePath: string) => Promise<void>;
+
+      /** Opens the configured external terminal in the folder containing `filePath` (null = home folder). */
+      openInTerminal: (filePath: string | null) => Promise<boolean>;
+
+      /** Terminal apps and shells available on this machine (for Preferences). */
+      getTerminalChoices: () => Promise<TerminalChoices>;
+
+      /** Integrated terminal: start a shell. `cwd` may be a file (its folder is used) or null (home). */
+      ptyCreate: (options: PtyCreateOptions) => Promise<PtyCreateResult>;
+      ptyWrite: (id: number, data: string) => void;
+      ptyResize: (id: number, cols: number, rows: number) => void;
+      ptyKill: (id: number) => Promise<void>;
+      onPtyData: (callback: (event: PtyDataEvent) => void) => () => void;
+      onPtyExit: (callback: (event: PtyExitEvent) => void) => () => void;
+
       /** Application menu event subscriptions. */
       onMenuNewCollection: (callback: () => void) => () => void;
       onMenuOpenCollection: (callback: () => void) => () => void;
@@ -154,6 +178,8 @@ declare global {
       onMenuOpenSettings: (callback: () => void) => () => void;
       onMenuImportCurl: (callback: () => void) => () => void;
       onMenuImportOpenApi: (callback: () => void) => () => void;
+      onMenuToggleTerminal: (callback: () => void) => () => void;
+      onMenuNewTerminal: (callback: () => void) => () => void;
     };
   }
 }

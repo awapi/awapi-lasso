@@ -24,6 +24,12 @@ export interface AppSettings {
   openCollectionPaths?: string[];
   /** Last directory used in open/import/save file dialogs. */
   lastOpenDirectory?: string | null;
+  /** "Open in External Terminal" app. null/undefined = automatic; see TerminalPreference. */
+  externalTerminal?: string | null;
+  /** Shell for the integrated terminal. null/undefined = automatic; see TerminalPreference. */
+  integratedShell?: string | null;
+  /** Console (fixed-width) font family for the integrated terminal. null/undefined = default stack. */
+  terminalFont?: string | null;
 }
 
 export interface SessionTabState {
@@ -76,6 +82,18 @@ export function loadAppSettings(): AppSettings {
           typeof parsed.lastOpenDirectory === 'string' && parsed.lastOpenDirectory.length > 0
             ? parsed.lastOpenDirectory
             : null,
+        externalTerminal:
+          typeof parsed.externalTerminal === 'string' && parsed.externalTerminal.length > 0
+            ? parsed.externalTerminal
+            : null,
+        integratedShell:
+          typeof parsed.integratedShell === 'string' && parsed.integratedShell.length > 0
+            ? parsed.integratedShell
+            : null,
+        terminalFont:
+          typeof parsed.terminalFont === 'string' && parsed.terminalFont.length > 0
+            ? parsed.terminalFont
+            : null,
       };
     }
   } catch {
@@ -91,6 +109,9 @@ export function loadAppSettings(): AppSettings {
     recentFiles: [],
     openCollectionPaths: [],
     lastOpenDirectory: null,
+    externalTerminal: null,
+    integratedShell: null,
+    terminalFont: null,
   };
 }
 

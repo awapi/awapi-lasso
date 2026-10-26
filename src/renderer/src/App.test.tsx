@@ -4,6 +4,12 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest';
 import App from './App';
 
+vi.mock('./components/TerminalView', () => ({
+  default: (props: { sessionId: number; isActive: boolean }) => (
+    <div data-testid={`terminal-view-${props.sessionId}`} data-active={String(props.isActive)} />
+  ),
+}));
+
 describe('App shell', () => {
   let osOpenCallback: ((filePath: string) => void) | null = null;
 
@@ -108,6 +114,26 @@ describe('App shell', () => {
       pullGit: vi.fn().mockResolvedValue({ ok: true, message: 'Pulled' }),
       pushGit: vi.fn().mockResolvedValue({ ok: true, message: 'Pushed' }),
       revertGitChanges: vi.fn().mockResolvedValue({ ok: true, message: 'Reverted' }),
+      showItemInFolder: vi.fn().mockResolvedValue(undefined),
+      openInTerminal: vi.fn().mockResolvedValue(true),
+      getTerminalChoices: vi.fn().mockResolvedValue({
+        platform: 'darwin',
+        externalTerminals: [{ id: 'terminal', label: 'Terminal', detail: 'Terminal' }],
+        shells: [{ id: '/bin/zsh', label: 'zsh', detail: '/bin/zsh' }],
+        autoExternalTerminal: 'Terminal',
+        autoShell: 'zsh',
+      }),
+      ptyCreate: vi.fn().mockResolvedValue({
+        ok: true,
+        id: 1,
+        cwd: '/Users/me/apis',
+        shell: 'zsh',
+      }),
+      ptyWrite: vi.fn(),
+      ptyResize: vi.fn(),
+      ptyKill: vi.fn().mockResolvedValue(undefined),
+      onPtyData: vi.fn(() => () => {}),
+      onPtyExit: vi.fn(() => () => {}),
       onMenuNewCollection: vi.fn(() => () => {}),
       onMenuOpenCollection: vi.fn(() => () => {}),
       onMenuSaveCollection: vi.fn(() => () => {}),
@@ -115,6 +141,8 @@ describe('App shell', () => {
       onMenuOpenSettings: vi.fn(() => () => {}),
       onMenuImportCurl: vi.fn(() => () => {}),
       onMenuImportOpenApi: vi.fn(() => () => {}),
+      onMenuToggleTerminal: vi.fn(() => () => {}),
+      onMenuNewTerminal: vi.fn(() => () => {}),
     };
   });
 
@@ -126,6 +154,19 @@ describe('App shell', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('cli-status-badge')).toHaveTextContent('awlasso CLI active');
+    });
+
+    window.electronAPI.setCliCommandEnabled = vi.fn().mockResolvedValue({
+      ok: true,
+      enabled: false,
+      commandPath: '/usr/local/bin/awlasso',
+    });
+
+    fireEvent.click(screen.getByTestId('cli-status-badge'));
+    expect(window.electronAPI.setCliCommandEnabled).toHaveBeenCalledWith(false);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cli-status-badge')).toHaveTextContent('awlasso CLI ready');
     });
   });
 
@@ -550,5 +591,79 @@ describe('App shell', () => {
     expect(screen.getByTestId('save-request-btn')).toHaveAttribute('data-unsaved', 'false');
     expect(screen.getByTestId('collection-list')).toHaveTextContent('Awapi Platform');
     expect(screen.getByTestId('collection-list')).toHaveTextContent('Awapi Home');
+  });
+
+  it('opens integrated and external terminal from collection context menu, and status bar icon opens in home folder when no collection is selected or collection folder when selected', async () => {
+    render(<App />);
+
+    // 1. With no collection selected, clicking the status bar terminal icon opens in the home folder (cwd: null)
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('status-bar-collection')).toHaveTextContent('No collection selected');
+    fireEvent.click(screen.getByTestId('status-bar-terminal-toggle'));
+
+    await waitFor(() => {
+      expect(window.electronAPI.ptyCreate).toHaveBeenCalledWith({
+        cwd: null,
+        cols: 80,
+        rows: 24,
+      });
+    });
+
+    // Close the terminal session so the next status bar toggle starts a fresh session
+    fireEvent.click(screen.getByTestId('terminal-close-1'));
+
+    // 2. Open a collection -> status bar reflects selected collection and opens in that collection's folder
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1000);
+    fireEvent.click(screen.getByTestId('open-collection-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list')).toHaveTextContent(
+        '/Users/me/apis/payments.awjc',
+      );
+    });
+
+    fireEvent.click(screen.getByTestId('status-bar-terminal-toggle'));
+    await waitFor(() => {
+      expect(window.electronAPI.ptyCreate).toHaveBeenLastCalledWith({
+        cwd: '/Users/me/apis/payments.awjc',
+        cols: 80,
+        rows: 24,
+      });
+    });
+
+    const colMenuBtn = screen
+      .getAllByRole('button')
+      .find(btn => btn.getAttribute('data-testid')?.startsWith('collection-menu-btn-'));
+    expect(colMenuBtn).toBeDefined();
+    fireEvent.click(colMenuBtn!);
+
+    const openIntegratedBtn = screen
+      .getAllByRole('button')
+      .find(btn =>
+        btn.getAttribute('data-testid')?.startsWith('col-menu-open-integrated-terminal-'),
+      );
+    expect(openIntegratedBtn).toBeDefined();
+    fireEvent.click(openIntegratedBtn!);
+
+    await waitFor(() => {
+      expect(window.electronAPI.ptyCreate).toHaveBeenCalledWith({
+        cwd: '/Users/me/apis/payments.awjc',
+        cols: 80,
+        rows: 24,
+      });
+    });
+
+    // Open collection menu again and test Open in External Terminal
+    fireEvent.click(colMenuBtn!);
+    const openExternalBtn = screen
+      .getAllByRole('button')
+      .find(btn =>
+        btn.getAttribute('data-testid')?.startsWith('col-menu-open-external-terminal-'),
+      );
+    expect(openExternalBtn).toBeDefined();
+    fireEvent.click(openExternalBtn!);
+    expect(window.electronAPI.openInTerminal).toHaveBeenCalledWith(
+      '/Users/me/apis/payments.awjc',
+    );
   });
 });

@@ -12,7 +12,8 @@
     "package": "node scripts/generate-icons.js && cross-env NODE_ENV=production vite build && electron-builder",
     "release": "node scripts/generate-icons.js && cross-env NODE_ENV=production vite build && electron-builder --publish always",
     "typecheck": "tsc --noEmit",
-    "icons": "node scripts/generate-icons.js"
+    "icons": "node scripts/generate-icons.js",
+    "postinstall": "node scripts/fix-node-pty-permissions.js"
   },
   "build": {
     "appId": "com.awapi.awapilasso",
@@ -95,7 +96,10 @@
       "dist/**/*",
       "build/**/*"
     ],
-    "npmRebuild": false
+    "npmRebuild": false,
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ]
   },
   "repository": {
     "type": "git",
@@ -122,14 +126,18 @@
       "electron",
       "electron-winstaller",
       "esbuild",
+      "node-pty",
       "sharp"
     ]
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "graphql": "^16.10.0",
     "lucide-react": "^1.55.0",
     "monaco-editor": "^0.57.0",
+    "node-pty": "1.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "yaml": "^2.7.0"

@@ -9,6 +9,7 @@ import {
   clipboard,
   Menu,
   safeStorage,
+  webContents,
   type MenuItemConstructorOptions,
 } from 'electron';
 
@@ -120,6 +121,14 @@ import type {
   GitLogRequest,
   GitRevertRequest,
 } from '../shared/gitTypes';
+import {
+  openExternalTerminal,
+  resolveTerminalCwd,
+  type ExternalTerminalDeps,
+} from './externalTerminal';
+import { getTerminalChoices, resolveShell } from './terminalDetection';
+import { PtyManager } from './ptyManager';
+import type { PtyCreateOptions } from '../shared/terminal';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -504,6 +513,29 @@ function rebuildAppMenu(): void {
     {
       label: 'View',
       submenu: [
+        {
+          label: 'Toggle Terminal',
+          accelerator: 'Ctrl+`',
+          // Windows/Linux: the renderer handles Ctrl+` itself (so it works while
+          // xterm has focus); the accelerator is shown for discoverability only.
+          registerAccelerator: false,
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              sendWhenLoaded(mainWindow, 'menu:toggleTerminal');
+            }
+          },
+        },
+        {
+          label: 'New Terminal',
+          accelerator: 'Ctrl+Shift+`',
+          registerAccelerator: false,
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              sendWhenLoaded(mainWindow, 'menu:newTerminal');
+            }
+          },
+        },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
@@ -619,6 +651,74 @@ function buildGitServiceDeps(): GitServiceDeps {
     writeFile: (p: string, content: string) => fs.writeFileSync(p, content, 'utf-8'),
   };
 }
+
+function buildTerminalDeps(): ExternalTerminalDeps {
+  return {
+    platform: process.platform,
+    env: process.env,
+    spawn,
+    isDirectory: p => {
+      try {
+        return fs.statSync(p).isDirectory();
+      } catch {
+        return false;
+      }
+    },
+    // lstat: Windows app execution aliases (wt.exe) are reparse points that
+    // a following stat cannot open.
+    exists: p => {
+      try {
+        fs.lstatSync(p);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    readFile: p => {
+      try {
+        return fs.readFileSync(p, 'utf-8');
+      } catch {
+        return null;
+      }
+    },
+    realpath: p => {
+      try {
+        return fs.realpathSync(p);
+      } catch {
+        return null;
+      }
+    },
+    dirname: path.dirname,
+    isAbsolute: path.isAbsolute,
+    homeDir: os.homedir(),
+  };
+}
+
+const ptyManager = new PtyManager({
+  platform: process.platform,
+  env: process.env,
+  loadSpawnPty: async () => {
+    // Lazy CommonJS require (not import()): resolves inside app.asar.unpacked
+    // in packaged builds, and a broken native build only disables the terminal.
+    const pty = require('node-pty') as typeof import('node-pty');
+    return (file, args, options) => pty.spawn(file, args, options);
+  },
+  resolveShell: () => resolveShell(loadAppSettings().integratedShell ?? null, buildTerminalDeps()),
+  resolveCwd: target => {
+    const deps = buildTerminalDeps();
+    return (target && resolveTerminalCwd(target, deps)) || deps.homeDir;
+  },
+  sendData: (ownerId, payload) => {
+    const wc = webContents.fromId(ownerId);
+    if (wc && !wc.isDestroyed()) wc.send('pty:data', payload);
+  },
+  sendExit: (ownerId, payload) => {
+    const wc = webContents.fromId(ownerId);
+    if (wc && !wc.isDestroyed()) wc.send('pty:exit', payload);
+  },
+});
+
+const ptyOwnersWithCleanup = new Set<number>();
 
 const collectionWatchers = new CollectionWatcherRegistry();
 
@@ -947,6 +1047,63 @@ function registerIpcHandlers(): void {
     collectionWatchers.markSelfSaved(request.collectionFilePath);
     return revertCollectionGitChanges(request, buildGitServiceDeps());
   });
+
+  ipcMain.handle('file:showInFolder', (_event, filePath: string) => {
+    if (typeof filePath === 'string' && filePath && path.isAbsolute(filePath)) {
+      shell.showItemInFolder(filePath);
+    }
+  });
+
+  ipcMain.handle('terminal:getChoices', () => getTerminalChoices(buildTerminalDeps()));
+
+  ipcMain.handle('file:openInTerminal', async (event, filePath: string | null) => {
+    const preference = loadAppSettings().externalTerminal ?? null;
+    const targetPath =
+      typeof filePath === 'string' && filePath && path.isAbsolute(filePath)
+        ? filePath
+        : null;
+    const result = await openExternalTerminal(targetPath, buildTerminalDeps(), preference);
+    if (!result.ok) {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+      const options = {
+        type: 'error' as const,
+        message: 'Could not open a terminal',
+        detail: result.error,
+      };
+      if (parent) await dialog.showMessageBox(parent, options);
+      else await dialog.showMessageBox(options);
+    }
+    return result.ok;
+  });
+
+  ipcMain.handle('pty:create', (event, options: unknown) => {
+    const owner = event.sender;
+    const ownerId = owner.id;
+    if (!ptyOwnersWithCleanup.has(ownerId)) {
+      ptyOwnersWithCleanup.add(ownerId);
+      owner.on('did-navigate', () => ptyManager.killAllForOwner(ownerId));
+      owner.once('destroyed', () => {
+        ptyManager.killAllForOwner(ownerId);
+        ptyOwnersWithCleanup.delete(ownerId);
+      });
+    }
+    return ptyManager.create(
+      ownerId,
+      (options ?? undefined) as Partial<PtyCreateOptions> | undefined,
+    );
+  });
+
+  ipcMain.on('pty:write', (event, id: number, data: unknown) => {
+    ptyManager.write(event.sender.id, id, data);
+  });
+
+  ipcMain.on('pty:resize', (event, id: number, cols: unknown, rows: unknown) => {
+    ptyManager.resize(event.sender.id, id, cols, rows);
+  });
+
+  ipcMain.handle('pty:kill', (event, id: number) => {
+    ptyManager.kill(event.sender.id, id);
+  });
 }
 
 if (gotSingleInstanceLock) {
@@ -980,4 +1137,6 @@ if (gotSingleInstanceLock) {
       app.quit();
     }
   });
+
+  app.on('will-quit', () => ptyManager.killAll());
 }

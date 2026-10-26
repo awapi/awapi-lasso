@@ -153,6 +153,8 @@ describe('CollectionSidebar', () => {
     const onRenameItem = vi.fn();
     const onDeleteItem = vi.fn();
     const onGenerateCodeForRequest = vi.fn();
+    const onOpenInIntegratedTerminal = vi.fn();
+    const onOpenInExternalTerminal = vi.fn();
 
     render(
       <CollectionSidebar
@@ -163,6 +165,8 @@ describe('CollectionSidebar', () => {
         onImportCollection={vi.fn()}
         onSaveCollection={vi.fn()}
         onSaveCollectionAs={onSaveCollectionAs}
+        onOpenInIntegratedTerminal={onOpenInIntegratedTerminal}
+        onOpenInExternalTerminal={onOpenInExternalTerminal}
         onCloseCollection={onCloseCollection}
         onNewHttpRequest={onNewHttpRequest}
         onNewGraphQLRequest={vi.fn()}
@@ -174,6 +178,24 @@ describe('CollectionSidebar', () => {
         onGenerateCodeForRequest={onGenerateCodeForRequest}
       />,
     );
+
+    // Open collection menu -> Open in Integrated Terminal & External Terminal
+    fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));
+    fireEvent.click(screen.getByTestId('col-menu-open-integrated-terminal-col_payments'));
+    expect(onOpenInIntegratedTerminal).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
+
+    fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));
+    fireEvent.click(screen.getByTestId('col-menu-open-external-terminal-col_payments'));
+    expect(onOpenInExternalTerminal).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
+
+    // Open folder menu -> Open in Integrated Terminal & External Terminal
+    fireEvent.click(screen.getByTestId('item-menu-btn-fld_admin'));
+    fireEvent.click(screen.getByTestId('menu-open-integrated-terminal-fld_admin'));
+    expect(onOpenInIntegratedTerminal).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
+
+    fireEvent.click(screen.getByTestId('item-menu-btn-fld_admin'));
+    fireEvent.click(screen.getByTestId('menu-open-external-terminal-fld_admin'));
+    expect(onOpenInExternalTerminal).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
 
     // Open collection menu
     fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));

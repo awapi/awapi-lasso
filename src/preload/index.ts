@@ -31,6 +31,13 @@ import type {
   GitOperationResult,
   GitRevertRequest,
 } from '../shared/gitTypes';
+import type {
+  PtyCreateOptions,
+  PtyCreateResult,
+  PtyDataEvent,
+  PtyExitEvent,
+  TerminalChoices,
+} from '../shared/terminal';
 import { COLLECTION_OPENED_FROM_OS_CHANNEL } from '../main/osFileAssociation';
 
 export const electronAPI = {
@@ -197,6 +204,44 @@ export const electronAPI = {
   revertGitChanges: (request: GitRevertRequest) =>
     ipcRenderer.invoke('git:revert', request) as Promise<GitOperationResult>,
 
+  /** Reveals `filePath` in OS Finder / Explorer. */
+  showItemInFolder: (filePath: string) =>
+    ipcRenderer.invoke('file:showInFolder', filePath) as Promise<void>,
+
+  /** Opens the configured external terminal in the folder containing `filePath` (null = home folder). */
+  openInTerminal: (filePath: string | null) =>
+    ipcRenderer.invoke('file:openInTerminal', filePath) as Promise<boolean>,
+
+  /** Terminal apps and shells available on this machine (for Preferences). */
+  getTerminalChoices: () =>
+    ipcRenderer.invoke('terminal:getChoices') as Promise<TerminalChoices>,
+
+  /** Integrated terminal: start a shell. `cwd` may be a file (its folder is used) or null (home). */
+  ptyCreate: (options: PtyCreateOptions) =>
+    ipcRenderer.invoke('pty:create', options) as Promise<PtyCreateResult>,
+  ptyWrite: (id: number, data: string) => ipcRenderer.send('pty:write', id, data),
+  ptyResize: (id: number, cols: number, rows: number) =>
+    ipcRenderer.send('pty:resize', id, cols, rows),
+  ptyKill: (id: number) => ipcRenderer.invoke('pty:kill', id) as Promise<void>,
+
+  /** Subscribes to shell output for this window's sessions. Returns an unsubscribe function. */
+  onPtyData: (callback: (event: PtyDataEvent) => void) => {
+    const listener = (_: unknown, event: PtyDataEvent) => callback(event);
+    ipcRenderer.on('pty:data', listener);
+    return () => {
+      ipcRenderer.removeListener('pty:data', listener);
+    };
+  },
+
+  /** Subscribes to shell exits for this window's sessions. Returns an unsubscribe function. */
+  onPtyExit: (callback: (event: PtyExitEvent) => void) => {
+    const listener = (_: unknown, event: PtyExitEvent) => callback(event);
+    ipcRenderer.on('pty:exit', listener);
+    return () => {
+      ipcRenderer.removeListener('pty:exit', listener);
+    };
+  },
+
   /** Application menu event subscriptions. */
   onMenuNewCollection: (callback: () => void) => {
     const listener = () => callback();
@@ -245,6 +290,20 @@ export const electronAPI = {
     ipcRenderer.on('menu:importOpenApi', listener);
     return () => {
       ipcRenderer.removeListener('menu:importOpenApi', listener);
+    };
+  },
+  onMenuToggleTerminal: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('menu:toggleTerminal', listener);
+    return () => {
+      ipcRenderer.removeListener('menu:toggleTerminal', listener);
+    };
+  },
+  onMenuNewTerminal: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('menu:newTerminal', listener);
+    return () => {
+      ipcRenderer.removeListener('menu:newTerminal', listener);
     };
   },
 };

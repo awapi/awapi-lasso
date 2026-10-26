@@ -36,6 +36,13 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check node-pty glibc floor (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/check-pty-glibc.sh
+
+      - name: Integrated terminal smoke test (node-pty)
+        run: node scripts/pty-smoke.js
+
       - name: Build, Package, and Publish Electron App
         run: pnpm run release
         env:

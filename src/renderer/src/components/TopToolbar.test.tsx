@@ -113,6 +113,29 @@ describe('TopToolbar', () => {
     expect(onOpenGitSourceControl).toHaveBeenCalledTimes(1);
   });
 
+  it('toggles awlasso CLI installation when clicking the CLI status badge', () => {
+    const onToggleCliCommand = vi.fn();
+    render(
+      <ThemeProvider>
+        <TopToolbar
+          environments={sampleEnvironments}
+          activeEnvironmentName="local"
+          onSelectEnvironment={vi.fn()}
+          onOpenEnvironmentManager={vi.fn()}
+          onOpenPreferences={vi.fn()}
+          cliEnabled={false}
+          cliCommandPath="/usr/local/bin/awlasso"
+          onToggleCliCommand={onToggleCliCommand}
+        />
+      </ThemeProvider>,
+    );
+
+    const cliBadge = screen.getByTestId('cli-status-badge');
+    expect(cliBadge).toHaveTextContent('awlasso CLI ready');
+    fireEvent.click(cliBadge);
+    expect(onToggleCliCommand).toHaveBeenCalledTimes(1);
+  });
+
   it('supports Cmd/Ctrl+E to focus environment switcher and Cmd/Ctrl+, to open preferences', () => {
     const onOpenPreferences = vi.fn();
     render(

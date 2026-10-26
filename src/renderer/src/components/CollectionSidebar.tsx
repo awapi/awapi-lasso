@@ -15,6 +15,8 @@ import {
   Plus,
   Save,
   Search,
+  SquareTerminal,
+  Terminal,
   Trash2,
 } from 'lucide-react';
 import type {
@@ -61,6 +63,8 @@ export interface CollectionSidebarProps {
   onSaveCollection: (collectionPath: string) => void;
   onSaveCollectionAs: (collectionPath: string) => void;
   onRevealInOs?: (collectionPath: string) => void;
+  onOpenInIntegratedTerminal?: (collectionPath: string) => void;
+  onOpenInExternalTerminal?: (collectionPath: string) => void;
   onCloseCollection?: (collectionPath: string) => void;
   onNewHttpRequest: (collectionPath: string, parentFolderId?: string) => void;
   onNewGraphQLRequest: (collectionPath: string, parentFolderId?: string) => void;
@@ -147,6 +151,8 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
   onSaveCollection,
   onSaveCollectionAs,
   onRevealInOs,
+  onOpenInIntegratedTerminal,
+  onOpenInExternalTerminal,
   onCloseCollection,
   onNewHttpRequest,
   onNewGraphQLRequest,
@@ -398,7 +404,10 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
             }}
           >
             <div
-              onClick={() => toggleCollapse(folder.id)}
+              onClick={() => {
+                onSelectCollection(collectionPath);
+                toggleCollapse(folder.id);
+              }}
               style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}
             >
               {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
@@ -530,6 +539,32 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                     style={menuItemStyle(colors)}
                   >
                     <Play size={12} /> Run Folder…
+                  </button>
+                )}
+                {onOpenInIntegratedTerminal && (
+                  <button
+                    type="button"
+                    data-testid={`menu-open-integrated-terminal-${folder.id}`}
+                    onClick={() => {
+                      setOpenMenuId(null);
+                      onOpenInIntegratedTerminal(collectionPath);
+                    }}
+                    style={menuItemStyle(colors)}
+                  >
+                    <SquareTerminal size={12} /> Open in Integrated Terminal
+                  </button>
+                )}
+                {onOpenInExternalTerminal && (
+                  <button
+                    type="button"
+                    data-testid={`menu-open-external-terminal-${folder.id}`}
+                    onClick={() => {
+                      setOpenMenuId(null);
+                      onOpenInExternalTerminal(collectionPath);
+                    }}
+                    style={menuItemStyle(colors)}
+                  >
+                    <Terminal size={12} /> Open in External Terminal
                   </button>
                 )}
                 <button
@@ -1288,6 +1323,32 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                               style={menuItemStyle(colors)}
                             >
                               <FolderOpen size={12} /> Reveal in Finder/Explorer
+                            </button>
+                          )}
+                          {onOpenInIntegratedTerminal && (
+                            <button
+                              type="button"
+                              data-testid={`col-menu-open-integrated-terminal-${entry.collection.metadata.id}`}
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                onOpenInIntegratedTerminal(entry.filePath);
+                              }}
+                              style={menuItemStyle(colors)}
+                            >
+                              <SquareTerminal size={12} /> Open in Integrated Terminal
+                            </button>
+                          )}
+                          {onOpenInExternalTerminal && (
+                            <button
+                              type="button"
+                              data-testid={`col-menu-open-external-terminal-${entry.collection.metadata.id}`}
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                onOpenInExternalTerminal(entry.filePath);
+                              }}
+                              style={menuItemStyle(colors)}
+                            >
+                              <Terminal size={12} /> Open in External Terminal
                             </button>
                           )}
                           {onCloseCollection && (

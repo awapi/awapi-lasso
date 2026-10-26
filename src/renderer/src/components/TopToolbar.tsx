@@ -7,6 +7,7 @@ import {
   Moon,
   Play,
   Settings,
+  SquareTerminal,
   Sun,
   Terminal,
   Upload,
@@ -35,8 +36,13 @@ export interface TopToolbarProps {
   onOpenImportCurl?: () => void;
   onOpenImportOpenApi?: () => void;
   cliEnabled?: boolean;
+  cliCommandPath?: string | null;
+  cliError?: string | null;
+  onToggleCliCommand?: () => void;
   splitLayout?: 'vertical' | 'horizontal';
   onToggleSplitLayout?: () => void;
+  terminalOpen?: boolean;
+  onToggleTerminal?: () => void;
 }
 
 export const TopToolbar: React.FC<TopToolbarProps> = ({
@@ -54,8 +60,13 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onOpenImportCurl,
   onOpenImportOpenApi,
   cliEnabled = false,
+  cliCommandPath = null,
+  cliError = null,
+  onToggleCliCommand,
   splitLayout = 'vertical',
   onToggleSplitLayout,
+  terminalOpen = false,
+  onToggleTerminal,
 }) => {
   const { isLight, colors, toggleTheme } = useTheme();
   const envSelectRef = useRef<HTMLSelectElement>(null);
@@ -219,20 +230,35 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
       {/* Right Controls: Environment Switcher, Managers, CLI status, Open, Preferences, Theme */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span
+        <button
+          type="button"
           data-testid="cli-status-badge"
+          onClick={onToggleCliCommand}
+          title={
+            cliError
+              ? `CLI error: ${cliError}`
+              : cliEnabled
+                ? `awlasso CLI installed${cliCommandPath ? ` at ${cliCommandPath}` : ''} (click to uninstall)`
+                : `Install 'awlasso' command in PATH${cliCommandPath ? ` (${cliCommandPath})` : ''} to open .awjc files from terminal`
+          }
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 4,
+            gap: 5,
             fontSize: 11,
-            color: colors.textSecondary,
+            fontWeight: 500,
+            padding: '4px 8px',
+            borderRadius: 6,
+            border: `1px solid ${cliError ? colors.danger : cliEnabled ? `${colors.success}66` : colors.border}`,
+            backgroundColor: cliEnabled ? `${colors.success}14` : 'transparent',
+            color: cliError ? colors.danger : cliEnabled ? colors.success : colors.textSecondary,
+            cursor: onToggleCliCommand ? 'pointer' : 'default',
             marginRight: 4,
           }}
         >
           <Terminal size={13} />
           {cliEnabled ? 'awlasso CLI active' : 'awlasso CLI ready'}
-        </span>
+        </button>
 
         {/* Environment Switcher Dropdown (Cmd/Ctrl+E) */}
         <div
@@ -477,6 +503,27 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             style={{ ...buttonStyle, padding: 6 }}
           >
             {splitLayout === 'vertical' ? <Columns size={14} /> : <Rows size={14} />}
+          </button>
+        )}
+
+        {/* Integrated Terminal Toggle (Ctrl+`) */}
+        {onToggleTerminal && (
+          <button
+            type="button"
+            data-testid="toolbar-terminal-toggle-btn"
+            aria-label="Toggle terminal"
+            aria-pressed={terminalOpen}
+            onClick={onToggleTerminal}
+            title="Toggle Integrated Terminal (Ctrl+`)"
+            style={{
+              ...buttonStyle,
+              padding: 6,
+              backgroundColor: terminalOpen ? `${colors.accent}22` : buttonStyle.backgroundColor,
+              borderColor: terminalOpen ? colors.accent : colors.border,
+              color: terminalOpen ? colors.accent : colors.textPrimary,
+            }}
+          >
+            <SquareTerminal size={14} />
           </button>
         )}
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SquareTerminal } from 'lucide-react';
 import {
   createDefaultFolder,
   createDefaultGraphQLRequest,
@@ -38,9 +39,13 @@ import { CodeSnippetModal } from './components/CodeSnippetModal';
 import { CollectionRunnerModal } from './components/CollectionRunnerModal';
 import { GitSourceControlModal } from './components/GitSourceControlModal';
 import { SaveRequestModal } from './components/SaveRequestModal';
+import { SettingsModal } from './components/SettingsModal';
+import { TerminalPanel } from './components/TerminalPanel';
 import { ResponseInspector } from './components/ResponseInspector';
 import { curlToRequestItem } from '../../shared/curlParser';
 import type { GitCollectionStatus } from '../../shared/gitTypes';
+import { useTerminalSessions } from './useTerminalSessions';
+import { isNewTerminalShortcut, isToggleTerminalShortcut } from './terminalKeys';
 
 type RequestBuilderSectionTab =
   | 'params'
@@ -163,7 +168,10 @@ const WorkspaceShell: React.FC = () => {
   const [inFlightRequestId, setInFlightRequestId] = useState<string | null>(null);
 
   const [cliEnabled, setCliEnabled] = useState<boolean>(false);
+  const [cliCommandPath, setCliCommandPath] = useState<string | null>(null);
+  const [cliError, setCliError] = useState<string | null>(null);
   const [splitLayout, setSplitLayout] = useState<'vertical' | 'horizontal'>('vertical');
+  const [settingsModalOpen, setSettingsModalOpen] = useState<boolean>(false);
   const [envModalOpen, setEnvModalOpen] = useState<boolean>(false);
   const [envModalTab, setEnvModalTab] = useState<EnvironmentModalTab>('environments');
   const [codeSnippetModalOpen, setCodeSnippetModalOpen] = useState<boolean>(false);
@@ -181,6 +189,53 @@ const WorkspaceShell: React.FC = () => {
   const [saveRequestModalTabId, setSaveRequestModalTabId] = useState<string | null>(null);
   const [closeAfterSaveTabIds, setCloseAfterSaveTabIds] = useState<string[] | null>(null);
   const isSessionHydratedRef = useRef<boolean>(false);
+
+  const terminals = useTerminalSessions();
+  const activeTabCollectionPath =
+    tabs.find(t => t.id === activeTabId)?.collectionPath ?? tabs[0]?.collectionPath ?? null;
+  const selectedCollectionPath =
+    activeCollectionPath ?? activeTabCollectionPath ?? null;
+  const terminalCwdForNew =
+    selectedCollectionPath &&
+    (/^([a-zA-Z]:[\\/]|\\\\)/.test(selectedCollectionPath) ||
+      selectedCollectionPath.startsWith('/'))
+      ? selectedCollectionPath
+      : null;
+  const terminalCwdForNewRef = useRef<string | null>(terminalCwdForNew);
+  terminalCwdForNewRef.current = terminalCwdForNew;
+
+  const toggleTerminalRef = useRef(() => {});
+  const lastTerminalToggleRef = useRef(0);
+  toggleTerminalRef.current = () => {
+    if (!terminals.isAvailable) return;
+    const now = Date.now();
+    if (now - lastTerminalToggleRef.current < 150) return;
+    lastTerminalToggleRef.current = now;
+    terminals.togglePanel(terminalCwdForNewRef.current);
+  };
+
+  const newTerminalRef = useRef(() => {});
+  const lastNewTerminalRef = useRef(0);
+  newTerminalRef.current = () => {
+    if (!terminals.isAvailable) return;
+    const now = Date.now();
+    if (now - lastNewTerminalRef.current < 150) return;
+    lastNewTerminalRef.current = now;
+    void terminals.createSession(terminalCwdForNewRef.current);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const toggle = isToggleTerminalShortcut(e);
+      if (!toggle && !isNewTerminalShortcut(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (toggle) toggleTerminalRef.current();
+      else newTerminalRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, []);
 
   const loadCollectionFromDisk = useCallback(async (filePath: string): Promise<AwjcCollection> => {
     const api = window.electronAPI;
@@ -375,7 +430,10 @@ const WorkspaceShell: React.FC = () => {
     void hydrateWorkspace();
 
     void api.getCliCommandStatus?.().then(status => {
-      if (status) setCliEnabled(status.enabled);
+      if (status) {
+        setCliEnabled(status.enabled);
+        setCliCommandPath(status.commandPath ?? null);
+      }
     });
 
     const unsubscribeOsOpen = api.onCollectionOpenedFromOs?.(filePath => {
@@ -406,6 +464,15 @@ const WorkspaceShell: React.FC = () => {
         }
       });
     });
+    const unsubscribeMenuSettings = api.onMenuOpenSettings?.(() => {
+      setSettingsModalOpen(true);
+    });
+    const unsubscribeMenuToggleTerminal = api.onMenuToggleTerminal?.(() => {
+      toggleTerminalRef.current();
+    });
+    const unsubscribeMenuNewTerminal = api.onMenuNewTerminal?.(() => {
+      newTerminalRef.current();
+    });
 
     return () => {
       cancelled = true;
@@ -413,6 +480,9 @@ const WorkspaceShell: React.FC = () => {
       unsubscribeMenuOpen?.();
       unsubscribeMenuCurl?.();
       unsubscribeMenuOpenApi?.();
+      unsubscribeMenuSettings?.();
+      unsubscribeMenuToggleTerminal?.();
+      unsubscribeMenuNewTerminal?.();
     };
   }, [addCollectionByPath, loadCollectionFromDisk]);
 
@@ -1173,8 +1243,7 @@ const WorkspaceShell: React.FC = () => {
           setEnvModalOpen(true);
         }}
         onOpenPreferences={() => {
-          setEnvModalTab('environments');
-          setEnvModalOpen(true);
+          setSettingsModalOpen(true);
         }}
         onOpenCollectionRunner={() => {
           setRunnerInitialFolderId(null);
@@ -1186,10 +1255,30 @@ const WorkspaceShell: React.FC = () => {
           setImportCurlModalOpen(true);
         }}
         cliEnabled={cliEnabled}
+        cliCommandPath={cliCommandPath}
+        cliError={cliError}
+        onToggleCliCommand={() => {
+          const api = window.electronAPI;
+          if (!api?.setCliCommandEnabled) return;
+          const nextEnabled = !cliEnabled;
+          setCliError(null);
+          void api.setCliCommandEnabled(nextEnabled).then(res => {
+            if (!res) return;
+            setCliEnabled(res.enabled);
+            if (res.commandPath !== undefined) {
+              setCliCommandPath(res.commandPath);
+            }
+            if (!res.ok) {
+              setCliError(res.error);
+            }
+          });
+        }}
         splitLayout={splitLayout}
         onToggleSplitLayout={() =>
           setSplitLayout(prev => (prev === 'vertical' ? 'horizontal' : 'vertical'))
         }
+        terminalOpen={terminals.isOpen}
+        onToggleTerminal={terminals.isAvailable ? () => toggleTerminalRef.current() : undefined}
       />
 
       {/* Main Split Workspace: Left Sidebar <-> Right Request/Response Area */}
@@ -1250,6 +1339,19 @@ const WorkspaceShell: React.FC = () => {
               }}
               onSaveCollection={fp => void handleSaveCollection(fp)}
               onSaveCollectionAs={fp => void handleSaveCollectionAs(fp)}
+              onRevealInOs={fp => void window.electronAPI?.showItemInFolder?.(fp)}
+              onOpenInIntegratedTerminal={
+                terminals.isAvailable
+                  ? fp => {
+                      setActiveCollectionPath(fp);
+                      void terminals.createSession(fp);
+                    }
+                  : undefined
+              }
+              onOpenInExternalTerminal={fp => {
+                setActiveCollectionPath(fp);
+                void window.electronAPI?.openInTerminal?.(fp);
+              }}
               onCloseCollection={handleCloseCollection}
               onNewHttpRequest={(fp, parentFolderId) => {
                 const newReq = createDefaultHttpRequest();
@@ -1781,6 +1883,108 @@ const WorkspaceShell: React.FC = () => {
           }
         />
       </div>
+
+      {/* Bottom Integrated Terminal Panel */}
+      <TerminalPanel terminals={terminals} cwdForNew={terminalCwdForNew} />
+
+      {/* Bottom Status Bar */}
+      <footer
+        data-testid="status-bar"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '4px 10px',
+          borderTop: `1px solid ${colors.border}`,
+          backgroundColor: colors.bgSecondary,
+          flexShrink: 0,
+          fontSize: 11,
+          color: colors.textSecondary,
+          minHeight: 26,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <span
+            data-testid="status-bar-collection"
+            title={activeCollectionEntry?.filePath ?? undefined}
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {activeCollectionEntry
+              ? `${activeCollectionEntry.collection.metadata.name}${activeCollectionEntry.isDirty ? ' •' : ''}`
+              : 'No collection selected'}
+          </span>
+          {activeCollection.activeEnvironment && (
+            <span data-testid="status-bar-environment" style={{ flexShrink: 0 }}>
+              Env: {activeCollection.activeEnvironment}
+            </span>
+          )}
+          {activeTab && (
+            <span
+              data-testid="status-bar-active-request"
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {activeRequest.protocol === 'graphql' ? 'GQL' : activeRequest.method.toUpperCase()}{' '}
+              {activeRequest.name || 'Untitled Request'}
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {terminals.isAvailable && (
+            <button
+              type="button"
+              data-testid="status-bar-terminal-toggle"
+              aria-label="Toggle terminal"
+              aria-pressed={terminals.isOpen}
+              title={
+                terminalCwdForNew
+                  ? `Toggle Integrated Terminal (Ctrl+\`) — opens in collection folder`
+                  : `Toggle Integrated Terminal (Ctrl+\`) — opens in home folder`
+              }
+              onClick={() => toggleTerminalRef.current()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '2px 6px',
+                border: `1px solid ${terminals.isOpen ? colors.accent : 'transparent'}`,
+                borderRadius: 4,
+                backgroundColor: terminals.isOpen ? `${colors.accent}22` : 'transparent',
+                color: terminals.isOpen ? colors.accent : colors.textPrimary,
+                cursor: 'pointer',
+              }}
+            >
+              <SquareTerminal size={14} />
+            </button>
+          )}
+        </div>
+      </footer>
+
+      {/* Preferences Modal */}
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        onCliStatusChanged={({ enabled, commandPath }) => {
+          setCliEnabled(enabled);
+          setCliCommandPath(commandPath);
+        }}
+      />
 
       {/* Unsaved Tab Changes Confirmation Modal */}
       {pendingCloseTabIds && pendingCloseTabIds.length > 0 && (() => {

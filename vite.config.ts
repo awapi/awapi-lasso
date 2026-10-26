@@ -73,7 +73,8 @@ export default defineConfig({
                 build: {
                   outDir: resolve(__dirname, 'dist/main'),
                   rolldownOptions: {
-                    external: ['electron'],
+                    // node-pty is a native module; it must be loaded from node_modules at runtime.
+                    external: ['electron', 'node-pty'],
                   },
                 },
               },

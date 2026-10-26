@@ -82,13 +82,16 @@ describe('session settings, recent collections, and session state', () => {
     expect(settings.recentFiles).toEqual([]);
   });
 
-  it('persists and restores theme, SSL defaults, and timeout preferences', () => {
+  it('persists and restores theme, SSL defaults, timeout, and terminal preferences', () => {
     saveAppSettings({
       theme: 'light',
       verifySsl: false,
       defaultTimeoutMs: 15000,
       followRedirects: false,
       maxRedirects: 5,
+      externalTerminal: 'iterm',
+      integratedShell: '/bin/zsh',
+      terminalFont: 'MesloLGS NF',
     });
 
     const loaded = loadAppSettings();
@@ -97,6 +100,9 @@ describe('session settings, recent collections, and session state', () => {
     expect(loaded.defaultTimeoutMs).toBe(15000);
     expect(loaded.followRedirects).toBe(false);
     expect(loaded.maxRedirects).toBe(5);
+    expect(loaded.externalTerminal).toBe('iterm');
+    expect(loaded.integratedShell).toBe('/bin/zsh');
+    expect(loaded.terminalFont).toBe('MesloLGS NF');
   });
 
   it('adds recent collection files in most-recent-first order and deduplicates existing entries', () => {
