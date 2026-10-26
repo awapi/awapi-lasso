@@ -2,10 +2,10 @@ awapiLasso: "1.0"
 kind: Collection
 metadata:
   id: col_public_apis_01
-  name: Public Web APIs
+  name: Public Web APIs and Apps
   description: Ready-to-run GET & GraphQL requests against public APIs (HTTPBin, JSONPlaceholder, GitHub, and Countries GraphQL)
   createdAt: 2026-10-25T00:00:00Z
-  updatedAt: 2026-10-26T01:03:55.777Z
+  updatedAt: 2026-10-26T04:29:49.046Z
 defaults:
   timeoutMs: 30000
   followRedirects: true
@@ -195,3 +195,25 @@ items:
             path: $.data.country.code
             operator: equals
             expected: CA
+  - kind: folder
+    id: fld_mvorbj5o_16_be6ajt
+    name: WebSites
+    auth:
+      type: inherit
+    headers: []
+    items:
+      - kind: request
+        id: req_mvorbu2n_24_01093e
+        name: awapi-website
+        protocol: http
+        method: GET
+        url: https://awapi.com
+        queryParams: []
+        pathParams: []
+        headers: []
+        auth:
+          type: inherit
+        body:
+          mode: none
+        captures: []
+        assertions: []
