@@ -12,7 +12,7 @@ export interface SecretCoordinate {
 
 export interface SecretVaultData {
   version: 1;
-  /** Maps composite key `${collectionId}::${scopeId}::${key}` to base64 ciphertext (or `plain:` fallback if OS keychain unavailable). */
+  /** Maps composite key `${collectionId}::${scopeId}::${key}` to `enc:` base64 ciphertext produced by `safeStorage`. Legacy `b64:` entries are re-encrypted on load. */
   entries: Record<string, string>;
 }
 
@@ -36,6 +36,17 @@ export interface SecretStoreDeps {
   readFile: (filePath: string) => string;
   writeFile: (filePath: string, content: string) => void;
   mkdir: (dirPath: string) => void;
+}
+
+/** Thrown when the OS keychain-backed encryption is unavailable, so secrets are never stored unencrypted. */
+export class SecretEncryptionUnavailableError extends Error {
+  constructor() {
+    super(
+      'Secure storage is unavailable on this system (OS keychain / Secret Service not accessible). ' +
+        'Secrets cannot be saved unencrypted; use a local <collection>.secrets.awjc sidecar instead.',
+    );
+    this.name = 'SecretEncryptionUnavailableError';
+  }
 }
 
 export function buildVaultEntryKey(coord: SecretCoordinate): string {
@@ -77,13 +88,29 @@ function loadVault(deps: SecretStoreDeps): SecretVaultData {
     if (deps.exists(vaultPath)) {
       const parsed = JSON.parse(deps.readFile(vaultPath)) as SecretVaultData;
       if (parsed && typeof parsed.entries === 'object' && parsed.entries !== null) {
-        return { version: 1, entries: { ...parsed.entries } };
+        const vault: SecretVaultData = { version: 1, entries: { ...parsed.entries } };
+        upgradeLegacyEntries(vault, deps);
+        return vault;
       }
     }
   } catch {
     // ignore corrupt vault
   }
   return { version: 1, entries: {} };
+}
+
+/** Re-encrypts legacy `b64:` (unencrypted) entries with `safeStorage` once encryption is available. */
+function upgradeLegacyEntries(vault: SecretVaultData, deps: SecretStoreDeps): void {
+  if (!deps.isEncryptionAvailable()) return;
+  let changed = false;
+  for (const [key, stored] of Object.entries(vault.entries)) {
+    if (!stored.startsWith('b64:')) continue;
+    const plaintext = decodeSecretValue(stored, deps);
+    if (plaintext === null) continue;
+    vault.entries[key] = encodeSecretValue(plaintext, deps);
+    changed = true;
+  }
+  if (changed) saveVault(deps, vault);
 }
 
 function saveVault(deps: SecretStoreDeps, vault: SecretVaultData): void {
@@ -95,11 +122,11 @@ function saveVault(deps: SecretStoreDeps, vault: SecretVaultData): void {
 }
 
 function encodeSecretValue(plaintext: string, deps: SecretStoreDeps): string {
-  if (deps.isEncryptionAvailable()) {
-    const encrypted = deps.encryptString(plaintext);
-    return `enc:${encrypted.toString('base64')}`;
+  if (!deps.isEncryptionAvailable()) {
+    throw new SecretEncryptionUnavailableError();
   }
-  return `b64:${Buffer.from(plaintext, 'utf-8').toString('base64')}`;
+  const encrypted = deps.encryptString(plaintext);
+  return `enc:${encrypted.toString('base64')}`;
 }
 
 function decodeSecretValue(stored: string, deps: SecretStoreDeps): string | null {
@@ -108,6 +135,7 @@ function decodeSecretValue(stored: string, deps: SecretStoreDeps): string | null
       const buf = Buffer.from(stored.slice(4), 'base64');
       return deps.decryptString(buf);
     }
+    // Legacy format written by older versions when encryption was unavailable (read-only support).
     if (stored.startsWith('b64:')) {
       return Buffer.from(stored.slice(4), 'base64').toString('utf-8');
     }
@@ -119,6 +147,7 @@ function decodeSecretValue(stored: string, deps: SecretStoreDeps): string | null
 
 /**
  * Stores a secret value in the OS Keychain-backed vault (`safeStorage`).
+ * @throws SecretEncryptionUnavailableError when `safeStorage` encryption is unavailable.
  */
 export function setSecret(
   coord: SecretCoordinate,

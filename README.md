@@ -65,6 +65,15 @@ Release builds are not yet signed/notarized with an Apple Developer ID, so Gatek
 
 Alternatively: click **Done** in the dialog, then go to **System Settings → Privacy & Security**, scroll to the *Security* section, and click **Open Anyway** next to "AwapiLasso was blocked".
 
+### macOS: "AwapiLasso wants to use your confidential information stored in “AwapiLasso Safe Storage” in your keychain"
+
+This prompt is expected and **does not give AwapiLasso access to your other keychain items** (Wi-Fi, browser, or other apps' passwords).
+
+- "AwapiLasso Safe Storage" is a keychain entry created by AwapiLasso itself (via Electron's `safeStorage`). It holds a single random encryption key used to encrypt your collection secrets (passwords, API keys, OAuth 2.0 tokens) before they are saved locally.
+- The app never lists or reads any other keychain entry.
+- macOS shows the prompt because the build is unsigned (see above), so its code signature is not recognized as the one that created the entry. Enter your **login keychain password** and click **Always Allow** to stop it from appearing again. Other Electron apps (VS Code, Slack, Discord, Chrome) show the same prompt for the same reason.
+- Click **Deny** if you prefer: the app still works, but saved secrets cannot be decrypted. If secure storage is unavailable, AwapiLasso refuses to save secrets rather than storing them unencrypted.
+
 ---
 
 ## 🛠️ Local Development, Packaging & Releasing on GitHub

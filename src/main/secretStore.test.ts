@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   getSidecarFilePath,
+  SecretEncryptionUnavailableError,
+  SECRETS_VAULT_FILENAME,
   setSecret,
   getSecret,
   deleteSecret,
@@ -67,6 +69,34 @@ describe('secretStore', () => {
 
     expect(deleteSecret(coord, deps)).toBe(true);
     expect(getSecret(coord, deps)).toBeNull();
+  });
+
+  it('refuses to store secrets unencrypted when safeStorage is unavailable', () => {
+    const { deps, files } = createMemorySecretDeps(false);
+    const coord = { collectionId: 'col_1', scopeId: 'collection', key: 'apiKey' };
+
+    expect(() => setSecret(coord, 'PLAINTEXT_VALUE', deps)).toThrow(SecretEncryptionUnavailableError);
+    expect(files.get(`/userdata/${SECRETS_VAULT_FILENAME}`)).toBeUndefined();
+  });
+
+  it('re-encrypts legacy b64 vault entries once encryption is available', () => {
+    const { deps, files } = createMemorySecretDeps(true);
+    const coord = { collectionId: 'col_1', scopeId: 'collection', key: 'apiKey' };
+    const vaultPath = `/userdata/${SECRETS_VAULT_FILENAME}`;
+    files.set(
+      vaultPath,
+      JSON.stringify({
+        version: 1,
+        entries: { 'col_1::collection::apiKey': `b64:${Buffer.from('LEGACY_SECRET').toString('base64')}` },
+      }),
+    );
+
+    expect(getSecret(coord, deps)).toBe('LEGACY_SECRET');
+
+    const rawVault = files.get(vaultPath) ?? '';
+    expect(rawVault).toContain('enc:');
+    expect(rawVault).not.toContain('b64:');
+    expect(getSecret(coord, deps)).toBe('LEGACY_SECRET');
   });
 
   it('merges OS Keychain secrets with local <collection>.secrets.awjc sidecar overrides', () => {
