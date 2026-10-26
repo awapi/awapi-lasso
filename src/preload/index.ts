@@ -20,6 +20,17 @@ import type {
   GraphQLSchemaCacheCoordinate,
   GraphQLSchemaDiscoveryResult,
 } from '../main/graphqlIntrospection';
+import type {
+  GitCheckoutBranchRequest,
+  GitCollectionStatus,
+  GitCommitEntry,
+  GitCommitRequest,
+  GitDiffPayload,
+  GitDiffRequest,
+  GitLogRequest,
+  GitOperationResult,
+  GitRevertRequest,
+} from '../shared/gitTypes';
 import { COLLECTION_OPENED_FROM_OS_CHANNEL } from '../main/osFileAssociation';
 
 export const electronAPI = {
@@ -43,22 +54,14 @@ export const electronAPI = {
     } | null>,
 
   /** Saves a collection to `filePath` (stripping `secret: true` values into OS Keychain). */
-  saveCollection: (options: {
-    filePath: string;
-    collection: AwjcCollection;
-    format?: 'yaml' | 'json';
-  }) =>
+  saveCollection: (options: { filePath: string; collection: AwjcCollection }) =>
     ipcRenderer.invoke('collection:save', options) as Promise<{
       filePath: string;
       serialized: string;
-    }>,
+    } | null>,
 
   /** Prompts for a file location and saves the `.awjc` / `.awj` collection. */
-  saveCollectionAs: (options: {
-    defaultPath?: string;
-    collection: AwjcCollection;
-    format?: 'yaml' | 'json';
-  }) =>
+  saveCollectionAs: (options: { defaultPath?: string; collection: AwjcCollection }) =>
     ipcRenderer.invoke('collection:saveAs', options) as Promise<{
       filePath: string;
       serialized: string;
@@ -171,6 +174,28 @@ export const electronAPI = {
   readClipboardText: () => ipcRenderer.invoke('clipboard:readText') as Promise<string>,
 
   checkForUpdates: () => ipcRenderer.invoke('updater:check') as Promise<void>,
+
+  /** Per-collection Git integration (using the collection's parent folder as cwd). */
+  getGitStatus: (collectionFilePath: string) =>
+    ipcRenderer.invoke('git:getStatus', collectionFilePath) as Promise<GitCollectionStatus>,
+  initGitRepo: (collectionFilePath: string) =>
+    ipcRenderer.invoke('git:initRepo', collectionFilePath) as Promise<GitOperationResult>,
+  ensureGitignore: (collectionFilePath: string) =>
+    ipcRenderer.invoke('git:ensureGitignore', collectionFilePath) as Promise<GitOperationResult>,
+  getGitDiff: (request: GitDiffRequest) =>
+    ipcRenderer.invoke('git:getDiff', request) as Promise<GitDiffPayload>,
+  getGitLog: (request: GitLogRequest) =>
+    ipcRenderer.invoke('git:getLog', request) as Promise<GitCommitEntry[]>,
+  checkoutGitBranch: (request: GitCheckoutBranchRequest) =>
+    ipcRenderer.invoke('git:checkoutBranch', request) as Promise<GitOperationResult>,
+  commitGitChanges: (request: GitCommitRequest) =>
+    ipcRenderer.invoke('git:commit', request) as Promise<GitOperationResult>,
+  pullGit: (collectionFilePath: string) =>
+    ipcRenderer.invoke('git:pull', collectionFilePath) as Promise<GitOperationResult>,
+  pushGit: (collectionFilePath: string) =>
+    ipcRenderer.invoke('git:push', collectionFilePath) as Promise<GitOperationResult>,
+  revertGitChanges: (request: GitRevertRequest) =>
+    ipcRenderer.invoke('git:revert', request) as Promise<GitOperationResult>,
 
   /** Application menu event subscriptions. */
   onMenuNewCollection: (callback: () => void) => {

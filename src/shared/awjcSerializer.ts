@@ -21,7 +21,6 @@ export interface ExtractedSecretRecord {
 
 export interface ParseCollectionResult {
   collection: AwjcCollection;
-  format: 'yaml' | 'json';
   /** Any plaintext values discovered on `secret: true` fields during load so `secretStore` can migrate them. */
   extractedSecrets: ExtractedSecretRecord[];
 }
@@ -459,7 +458,7 @@ export function prepareCollectionForSave(collection: AwjcCollection): AwjcCollec
 }
 
 /**
- * Parses a `.awjc` or `.awj` collection string (YAML 1.2 or JSON) into a validated
+ * Parses a `.awjc` or `.awj` collection string into a validated
  * `AwjcCollection` and extracts any plaintext secrets found on `secret: true` entries.
  */
 export function parseCollectionFile(rawContent: string): ParseCollectionResult {
@@ -468,7 +467,6 @@ export function parseCollectionFile(rawContent: string): ParseCollectionResult {
     throw new Error('Collection file is empty');
   }
 
-  const format: 'yaml' | 'json' = trimmed.startsWith('{') ? 'json' : 'yaml';
   let parsed: unknown;
   try {
     parsed = YAML.parse(rawContent);
@@ -488,7 +486,6 @@ export function parseCollectionFile(rawContent: string): ParseCollectionResult {
 
   return {
     collection,
-    format,
     extractedSecrets,
   };
 }
@@ -503,13 +500,4 @@ export function serializeCollectionToYaml(collection: AwjcCollection): string {
     indent: 2,
     lineWidth: 0,
   });
-}
-
-/**
- * Serializes an `AwjcCollection` to formatted 2-space JSON with all
- * `secret: true` plaintext values stripped.
- */
-export function serializeCollectionToJson(collection: AwjcCollection): string {
-  const sanitized = prepareCollectionForSave(collection);
-  return `${JSON.stringify(sanitized, null, 2)}\n`;
 }

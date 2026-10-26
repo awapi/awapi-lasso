@@ -5,11 +5,11 @@ import {
   Clock,
   Code2,
   Copy,
-  Download,
   Edit3,
   Folder,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   MoreVertical,
   Play,
   Plus,
@@ -23,6 +23,8 @@ import type {
   FolderItem,
   RequestItem,
 } from '../../../shared/collectionSchema';
+import type { GitCollectionStatus } from '../../../shared/gitTypes';
+import { getGitFileStateBadge } from './GitSourceControlModal';
 import { useTheme } from '../context/ThemeContext';
 
 export interface WorkspaceCollectionEntry {
@@ -57,16 +59,19 @@ export interface CollectionSidebarProps {
   onImportOpenApi?: () => void;
   onRunCollection?: (collectionPath: string, folderId?: string) => void;
   onSaveCollection: (collectionPath: string) => void;
-  onExportCollection: (collectionPath: string, format: 'yaml' | 'json') => void;
+  onSaveCollectionAs: (collectionPath: string) => void;
   onRevealInOs?: (collectionPath: string) => void;
   onCloseCollection?: (collectionPath: string) => void;
   onNewHttpRequest: (collectionPath: string, parentFolderId?: string) => void;
   onNewGraphQLRequest: (collectionPath: string, parentFolderId?: string) => void;
   onNewFolder: (collectionPath: string, parentFolderId?: string) => void;
   onDuplicateItem: (collectionPath: string, itemId: string) => void;
+  onRenameCollection?: (collectionPath: string, newName: string) => void;
   onRenameItem: (collectionPath: string, itemId: string, newName: string) => void;
   onDeleteItem: (collectionPath: string, itemId: string) => void;
   onGenerateCodeForRequest?: (collectionPath: string, request: RequestItem) => void;
+  gitStatusByCollectionPath?: Record<string, GitCollectionStatus>;
+  onOpenGitSourceControl?: (collectionPath: string) => void;
 }
 
 export function getMethodBadgeColor(method: string, protocol: 'http' | 'graphql'): string {
@@ -140,16 +145,19 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
   onImportOpenApi,
   onRunCollection,
   onSaveCollection,
-  onExportCollection,
+  onSaveCollectionAs,
   onRevealInOs,
   onCloseCollection,
   onNewHttpRequest,
   onNewGraphQLRequest,
   onNewFolder,
   onDuplicateItem,
+  onRenameCollection,
   onRenameItem,
   onDeleteItem,
   onGenerateCodeForRequest,
+  gitStatusByCollectionPath = {},
+  onOpenGitSourceControl,
 }) => {
   const { colors, isLight } = useTheme();
   const [mode, setMode] = useState<'collections' | 'history'>('collections');
@@ -332,6 +340,15 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
     const trimmed = renameDraft.trim();
     if (trimmed) {
       onRenameItem(collectionPath, itemId, trimmed);
+    }
+    setRenamingId(null);
+    setRenameDraft('');
+  };
+
+  const commitCollectionRename = (collectionPath: string) => {
+    const trimmed = renameDraft.trim();
+    if (trimmed) {
+      onRenameCollection?.(collectionPath, trimmed);
     }
     setRenamingId(null);
     setRenameDraft('');
@@ -923,6 +940,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                 const isCollapsed = Boolean(collapsedIds[colId]);
                 const isSelected = activeCollectionPath === entry.filePath;
                 const isColMenuOpen = openMenuId === `col:${entry.filePath}`;
+                const isColRenaming = renamingId === `col:${entry.filePath}`;
                 const filteredItems = filterTreeItems(entry.collection.items, searchQuery);
                 const customHeight =
                   !isCollapsed && collections.length > 1 ? collectionHeights[colId] : undefined;
@@ -1009,22 +1027,102 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                         >
                           {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                         </button>
-                        <span
-                          title={entry.filePath}
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {entry.collection.metadata.name}
-                          {entry.isDirty ? ' •' : ''}
-                        </span>
+                        {isColRenaming ? (
+                          <input
+                            type="text"
+                            data-testid={`rename-collection-input-${entry.collection.metadata.id}`}
+                            value={renameDraft}
+                            autoFocus
+                            onClick={e => e.stopPropagation()}
+                            onChange={e => setRenameDraft(e.target.value)}
+                            onBlur={() => commitCollectionRename(entry.filePath)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') commitCollectionRename(entry.filePath);
+                              if (e.key === 'Escape') setRenamingId(null);
+                            }}
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              padding: '2px 4px',
+                              borderRadius: 4,
+                              border: `1px solid ${colors.accent}`,
+                              backgroundColor: colors.bgPrimary,
+                              color: colors.textPrimary,
+                              width: '100%',
+                            }}
+                          />
+                        ) : (
+                          <span
+                            title={entry.filePath}
+                            onDoubleClick={e => {
+                              e.stopPropagation();
+                              startRename(`col:${entry.filePath}`, entry.collection.metadata.name);
+                            }}
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {entry.collection.metadata.name}
+                            {entry.isDirty ? ' •' : ''}
+                          </span>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        {onOpenGitSourceControl && (
+                          <button
+                            type="button"
+                            data-testid={`collection-git-badge-${entry.collection.metadata.id}`}
+                            title={
+                              gitStatusByCollectionPath[entry.filePath]?.isGitRepo
+                                ? `Git: ${gitStatusByCollectionPath[entry.filePath].branch} (${getGitFileStateBadge(gitStatusByCollectionPath[entry.filePath].fileStatus, entry.isDirty).label}) — Click for Diff & Source Control`
+                                : 'Git Source Control & YAML Diff'
+                            }
+                            onClick={e => {
+                              e.stopPropagation();
+                              onOpenGitSourceControl(entry.filePath);
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              border: `1px solid ${colors.border}`,
+                              backgroundColor: colors.bgPrimary,
+                              color: colors.textSecondary,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              marginRight: 2,
+                            }}
+                          >
+                            <GitBranch size={11} color={colors.accent} />
+                            {gitStatusByCollectionPath[entry.filePath]?.isGitRepo ? (
+                              <>
+                                <span>{gitStatusByCollectionPath[entry.filePath].branch}</span>
+                                <span
+                                  style={{
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: '50%',
+                                    backgroundColor: getGitFileStateBadge(
+                                      gitStatusByCollectionPath[entry.filePath].fileStatus,
+                                      entry.isDirty,
+                                    ).color,
+                                    display: 'inline-block',
+                                  }}
+                                />
+                              </>
+                            ) : (
+                              <span>Git</span>
+                            )}
+                          </button>
+                        )}
                         <button
                           type="button"
                           data-testid={`collection-save-btn-${entry.collection.metadata.id}`}
@@ -1134,6 +1232,29 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                               <Play size={12} /> Run Collection…
                             </button>
                           )}
+                          {onOpenGitSourceControl && (
+                            <button
+                              type="button"
+                              data-testid={`col-menu-git-${entry.collection.metadata.id}`}
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                onOpenGitSourceControl(entry.filePath);
+                              }}
+                              style={menuItemStyle(colors)}
+                            >
+                              <GitBranch size={12} /> Git Source Control &amp; Diff…
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            data-testid={`col-menu-rename-${entry.collection.metadata.id}`}
+                            onClick={() =>
+                              startRename(`col:${entry.filePath}`, entry.collection.metadata.name)
+                            }
+                            style={menuItemStyle(colors)}
+                          >
+                            <Edit3 size={12} /> Rename
+                          </button>
                           <button
                             type="button"
                             data-testid={`col-menu-save-${entry.collection.metadata.id}`}
@@ -1147,25 +1268,14 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                           </button>
                           <button
                             type="button"
-                            data-testid={`col-menu-export-yaml-${entry.collection.metadata.id}`}
+                            data-testid={`col-menu-save-as-${entry.collection.metadata.id}`}
                             onClick={() => {
                               setOpenMenuId(null);
-                              onExportCollection(entry.filePath, 'yaml');
+                              onSaveCollectionAs(entry.filePath);
                             }}
                             style={menuItemStyle(colors)}
                           >
-                            <Download size={12} /> Export YAML
-                          </button>
-                          <button
-                            type="button"
-                            data-testid={`col-menu-export-json-${entry.collection.metadata.id}`}
-                            onClick={() => {
-                              setOpenMenuId(null);
-                              onExportCollection(entry.filePath, 'json');
-                            }}
-                            style={menuItemStyle(colors)}
-                          >
-                            <Download size={12} /> Export JSON
+                            <Save size={12} /> Save Collection As…
                           </button>
                           {onRevealInOs && (
                             <button

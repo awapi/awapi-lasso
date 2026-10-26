@@ -69,6 +69,50 @@ describe('TopToolbar', () => {
     expect(onOpenPreferences).toHaveBeenCalledTimes(1);
   });
 
+  it('renders active collection Git status badge and opens Git modal on click', () => {
+    const onOpenGitSourceControl = vi.fn();
+
+    render(
+      <ThemeProvider>
+        <TopToolbar
+          activeCollectionName="Payments API"
+          activeCollectionPath="/Users/me/apis/payments.awjc"
+          activeCollectionDirty={true}
+          activeGitStatus={{
+            collectionFilePath: '/Users/me/apis/payments.awjc',
+            folderPath: '/Users/me/apis',
+            isGitRepo: true,
+            branch: 'feat/checkout',
+            ahead: 2,
+            behind: 1,
+            fileStatus: 'modified',
+            folderChangedFiles: [],
+            branches: ['main', 'feat/checkout'],
+            safety: {
+              safe: true,
+              secretsSidecarIgnored: true,
+              hasPlaintextSecrets: false,
+              plaintextSecretWarnings: [],
+              issues: [],
+            },
+          }}
+          onOpenGitSourceControl={onOpenGitSourceControl}
+          environments={sampleEnvironments}
+          activeEnvironmentName="staging"
+          onSelectEnvironment={vi.fn()}
+          onOpenEnvironmentManager={vi.fn()}
+          onOpenPreferences={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    const gitBtn = screen.getByTestId('toolbar-git-status-btn');
+    expect(gitBtn).toHaveTextContent('feat/checkout');
+    expect(screen.getByTestId('toolbar-git-state-pill')).toHaveTextContent('Modified');
+    fireEvent.click(gitBtn);
+    expect(onOpenGitSourceControl).toHaveBeenCalledTimes(1);
+  });
+
   it('supports Cmd/Ctrl+E to focus environment switcher and Cmd/Ctrl+, to open preferences', () => {
     const onOpenPreferences = vi.fn();
     render(

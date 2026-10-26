@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   FileCode2,
+  GitBranch,
   Layers,
   Moon,
   Play,
@@ -13,11 +14,16 @@ import {
   Rows,
 } from 'lucide-react';
 import type { EnvironmentConfig } from '../../../shared/collectionSchema';
+import type { GitCollectionStatus } from '../../../shared/gitTypes';
+import { getGitFileStateBadge } from './GitSourceControlModal';
 import { useTheme } from '../context/ThemeContext';
 
 export interface TopToolbarProps {
   activeCollectionName?: string;
   activeCollectionPath?: string | null;
+  activeCollectionDirty?: boolean;
+  activeGitStatus?: GitCollectionStatus | null;
+  onOpenGitSourceControl?: () => void;
   environments: EnvironmentConfig[];
   activeEnvironmentName?: string | null;
   onSelectEnvironment: (environmentName: string) => void;
@@ -36,6 +42,9 @@ export interface TopToolbarProps {
 export const TopToolbar: React.FC<TopToolbarProps> = ({
   activeCollectionName,
   activeCollectionPath,
+  activeCollectionDirty = false,
+  activeGitStatus = null,
+  onOpenGitSourceControl,
   environments,
   activeEnvironmentName,
   onSelectEnvironment,
@@ -125,8 +134,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         gap: 12,
       }}
     >
-      {/* Left Active Collection Badge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      {/* Left Active Collection Badge & Per-Collection Git Status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         {activeCollectionName && (
           <span
             data-testid="active-collection-badge"
@@ -150,6 +159,61 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           >
             {activeCollectionName}
           </span>
+        )}
+
+        {activeCollectionName && onOpenGitSourceControl && (
+          <button
+            type="button"
+            data-testid="toolbar-git-status-btn"
+            onClick={onOpenGitSourceControl}
+            title={
+              activeGitStatus?.isGitRepo
+                ? `Git (${activeGitStatus.folderPath}): ${activeGitStatus.branch} • ${getGitFileStateBadge(activeGitStatus.fileStatus, activeCollectionDirty).label}`
+                : 'Open Git Source Control & YAML Diff for this collection'
+            }
+            style={{
+              ...buttonStyle,
+              padding: '3px 10px',
+              gap: 6,
+              backgroundColor: colors.bgPrimary,
+            }}
+          >
+            <GitBranch size={13} color={colors.accent} />
+            {activeGitStatus?.isGitRepo ? (
+              <>
+                <span style={{ fontWeight: 600 }}>{activeGitStatus.branch}</span>
+                <span
+                  data-testid="toolbar-git-state-pill"
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: 999,
+                    backgroundColor: `${getGitFileStateBadge(activeGitStatus.fileStatus, activeCollectionDirty).color}22`,
+                    color: getGitFileStateBadge(
+                      activeGitStatus.fileStatus,
+                      activeCollectionDirty,
+                    ).color,
+                  }}
+                >
+                  {
+                    getGitFileStateBadge(
+                      activeGitStatus.fileStatus,
+                      activeCollectionDirty,
+                    ).label
+                  }
+                </span>
+                {(activeGitStatus.ahead > 0 || activeGitStatus.behind > 0) && (
+                  <span style={{ fontSize: 10, color: colors.textSecondary }}>
+                    {activeGitStatus.ahead > 0 ? `↑${activeGitStatus.ahead}` : ''}
+                    {activeGitStatus.behind > 0 ? ` ↓${activeGitStatus.behind}` : ''}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span>Git</span>
+            )}
+          </button>
         )}
       </div>
 

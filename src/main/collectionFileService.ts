@@ -7,7 +7,6 @@ import {
 import {
   parseCollectionFile,
   serializeCollectionToYaml,
-  serializeCollectionToJson,
   extractPlaintextSecrets,
 } from '../shared/awjcSerializer';
 import {
@@ -18,14 +17,12 @@ import {
 
 export interface OpenedCollectionPayload {
   filePath: string;
-  format: 'yaml' | 'json';
   collection: AwjcCollection;
 }
 
 export interface SaveCollectionOptions {
   filePath: string;
   collection: AwjcCollection;
-  format?: 'yaml' | 'json';
 }
 
 export interface CollectionWatcherHandle {
@@ -156,7 +153,6 @@ export function openCollectionFromFile(
 
   return {
     filePath,
-    format: parsed.format,
     collection: parsed.collection,
   };
 }
@@ -169,7 +165,7 @@ export function saveCollectionToFile(
   options: SaveCollectionOptions,
   deps: CollectionFileServiceDeps,
 ): { filePath: string; serialized: string } {
-  const { filePath, collection, format = 'yaml' } = options;
+  const { filePath, collection } = options;
 
   // Persist any in-memory secret values into OS Keychain before stripping them from the file
   const secretsToPersist = extractPlaintextSecrets(collection);
@@ -189,10 +185,7 @@ export function saveCollectionToFile(
     },
   };
 
-  const serialized =
-    format === 'json'
-      ? serializeCollectionToJson(updatedCollection)
-      : serializeCollectionToYaml(updatedCollection);
+  const serialized = serializeCollectionToYaml(updatedCollection);
 
   deps.writeFile(filePath, serialized);
   deps.onRecentFileAdded?.(filePath);

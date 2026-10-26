@@ -19,6 +19,17 @@ import type {
   GraphQLSchemaCacheCoordinate,
   GraphQLSchemaDiscoveryResult,
 } from '../main/graphqlIntrospection';
+import type {
+  GitCheckoutBranchRequest,
+  GitCollectionStatus,
+  GitCommitEntry,
+  GitCommitRequest,
+  GitDiffPayload,
+  GitDiffRequest,
+  GitLogRequest,
+  GitOperationResult,
+  GitRevertRequest,
+} from '../shared/gitTypes';
 
 declare global {
   interface Window {
@@ -38,13 +49,11 @@ declare global {
       saveCollection: (options: {
         filePath: string;
         collection: AwjcCollection;
-        format?: 'yaml' | 'json';
-      }) => Promise<{ filePath: string; serialized: string }>;
+      }) => Promise<{ filePath: string; serialized: string } | null>;
       /** Prompts for a file location and saves the `.awjc` / `.awj` collection. */
       saveCollectionAs: (options: {
         defaultPath?: string;
         collection: AwjcCollection;
-        format?: 'yaml' | 'json';
       }) => Promise<{ filePath: string; serialized: string } | null>;
       /** Synchronizes the list of open `.awjc` / `.awj` file paths being watched for external edits. */
       watchCollectionPaths: (filePaths: string[]) => Promise<void>;
@@ -124,6 +133,18 @@ declare global {
       readClipboardText: () => Promise<string>;
 
       checkForUpdates: () => Promise<void>;
+
+      /** Per-collection Git integration (using the collection's parent folder as cwd). */
+      getGitStatus: (collectionFilePath: string) => Promise<GitCollectionStatus>;
+      initGitRepo: (collectionFilePath: string) => Promise<GitOperationResult>;
+      ensureGitignore: (collectionFilePath: string) => Promise<GitOperationResult>;
+      getGitDiff: (request: GitDiffRequest) => Promise<GitDiffPayload>;
+      getGitLog: (request: GitLogRequest) => Promise<GitCommitEntry[]>;
+      checkoutGitBranch: (request: GitCheckoutBranchRequest) => Promise<GitOperationResult>;
+      commitGitChanges: (request: GitCommitRequest) => Promise<GitOperationResult>;
+      pullGit: (collectionFilePath: string) => Promise<GitOperationResult>;
+      pushGit: (collectionFilePath: string) => Promise<GitOperationResult>;
+      revertGitChanges: (request: GitRevertRequest) => Promise<GitOperationResult>;
 
       /** Application menu event subscriptions. */
       onMenuNewCollection: (callback: () => void) => () => void;

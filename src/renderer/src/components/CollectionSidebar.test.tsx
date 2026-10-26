@@ -41,6 +41,7 @@ const sampleEntries: WorkspaceCollectionEntry[] = [
 describe('CollectionSidebar', () => {
   it('renders nested folders and requests with method/protocol badges and filters by search query', () => {
     const onSelectRequest = vi.fn();
+    const onOpenGitSourceControl = vi.fn();
 
     render(
       <CollectionSidebar
@@ -52,15 +53,41 @@ describe('CollectionSidebar', () => {
         onNewCollection={vi.fn()}
         onImportCollection={vi.fn()}
         onSaveCollection={vi.fn()}
-        onExportCollection={vi.fn()}
+        onSaveCollectionAs={vi.fn()}
         onNewHttpRequest={vi.fn()}
         onNewGraphQLRequest={vi.fn()}
         onNewFolder={vi.fn()}
         onDuplicateItem={vi.fn()}
         onRenameItem={vi.fn()}
         onDeleteItem={vi.fn()}
+        gitStatusByCollectionPath={{
+          '/Users/me/apis/payments.awjc': {
+            collectionFilePath: '/Users/me/apis/payments.awjc',
+            folderPath: '/Users/me/apis',
+            isGitRepo: true,
+            branch: 'main',
+            ahead: 0,
+            behind: 0,
+            fileStatus: 'modified',
+            folderChangedFiles: [],
+            branches: ['main'],
+            safety: {
+              safe: true,
+              secretsSidecarIgnored: true,
+              hasPlaintextSecrets: false,
+              plaintextSecretWarnings: [],
+              issues: [],
+            },
+          },
+        }}
+        onOpenGitSourceControl={onOpenGitSourceControl}
       />,
     );
+
+    const gitBadge = screen.getByTestId('collection-git-badge-col_payments');
+    expect(gitBadge).toHaveTextContent('main');
+    fireEvent.click(gitBadge);
+    expect(onOpenGitSourceControl).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
 
     expect(screen.getByTestId('request-badge-req_get_users')).toHaveTextContent('GET');
     expect(screen.getByTestId('request-badge-req_gql_orders')).toHaveTextContent('GQL');
@@ -98,7 +125,7 @@ describe('CollectionSidebar', () => {
         onNewCollection={vi.fn()}
         onImportCollection={vi.fn()}
         onSaveCollection={vi.fn()}
-        onExportCollection={vi.fn()}
+        onSaveCollectionAs={vi.fn()}
         onNewHttpRequest={vi.fn()}
         onNewGraphQLRequest={vi.fn()}
         onNewFolder={vi.fn()}
@@ -117,11 +144,12 @@ describe('CollectionSidebar', () => {
     expect(onSelectHistoryEntry).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes context menu actions for collection and request items (New, Duplicate, Rename, Delete, Save, Export, Close, Generate Code)', () => {
+  it('invokes context menu actions for collection and request items (New, Duplicate, Rename, Delete, Save, Save As, Close, Generate Code)', () => {
     const onNewHttpRequest = vi.fn();
-    const onExportCollection = vi.fn();
+    const onSaveCollectionAs = vi.fn();
     const onCloseCollection = vi.fn();
     const onDuplicateItem = vi.fn();
+    const onRenameCollection = vi.fn();
     const onRenameItem = vi.fn();
     const onDeleteItem = vi.fn();
     const onGenerateCodeForRequest = vi.fn();
@@ -134,12 +162,13 @@ describe('CollectionSidebar', () => {
         onNewCollection={vi.fn()}
         onImportCollection={vi.fn()}
         onSaveCollection={vi.fn()}
-        onExportCollection={onExportCollection}
+        onSaveCollectionAs={onSaveCollectionAs}
         onCloseCollection={onCloseCollection}
         onNewHttpRequest={onNewHttpRequest}
         onNewGraphQLRequest={vi.fn()}
         onNewFolder={vi.fn()}
         onDuplicateItem={onDuplicateItem}
+        onRenameCollection={onRenameCollection}
         onRenameItem={onRenameItem}
         onDeleteItem={onDeleteItem}
         onGenerateCodeForRequest={onGenerateCodeForRequest}
@@ -151,9 +180,20 @@ describe('CollectionSidebar', () => {
     fireEvent.click(screen.getByTestId('col-menu-new-http-col_payments'));
     expect(onNewHttpRequest).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
 
+    // Open collection menu -> Rename
     fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));
-    fireEvent.click(screen.getByTestId('col-menu-export-yaml-col_payments'));
-    expect(onExportCollection).toHaveBeenCalledWith('/Users/me/apis/payments.awjc', 'yaml');
+    fireEvent.click(screen.getByTestId('col-menu-rename-col_payments'));
+    const colRenameInput = screen.getByTestId('rename-collection-input-col_payments');
+    fireEvent.change(colRenameInput, { target: { value: 'Billing & Payments API' } });
+    fireEvent.keyDown(colRenameInput, { key: 'Enter' });
+    expect(onRenameCollection).toHaveBeenCalledWith(
+      '/Users/me/apis/payments.awjc',
+      'Billing & Payments API',
+    );
+
+    fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));
+    fireEvent.click(screen.getByTestId('col-menu-save-as-col_payments'));
+    expect(onSaveCollectionAs).toHaveBeenCalledWith('/Users/me/apis/payments.awjc');
 
     fireEvent.click(screen.getByTestId('collection-menu-btn-col_payments'));
     fireEvent.click(screen.getByTestId('col-menu-close-col_payments'));
@@ -199,7 +239,7 @@ describe('CollectionSidebar', () => {
         onNewCollection={vi.fn()}
         onImportCollection={vi.fn()}
         onSaveCollection={vi.fn()}
-        onExportCollection={vi.fn()}
+        onSaveCollectionAs={vi.fn()}
         onNewHttpRequest={vi.fn()}
         onNewGraphQLRequest={vi.fn()}
         onNewFolder={vi.fn()}
@@ -247,7 +287,7 @@ describe('CollectionSidebar', () => {
         onNewCollection={vi.fn()}
         onImportCollection={vi.fn()}
         onSaveCollection={vi.fn()}
-        onExportCollection={vi.fn()}
+        onSaveCollectionAs={vi.fn()}
         onNewHttpRequest={vi.fn()}
         onNewGraphQLRequest={vi.fn()}
         onNewFolder={vi.fn()}

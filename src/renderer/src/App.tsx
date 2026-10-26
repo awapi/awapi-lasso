@@ -36,8 +36,11 @@ import {
 } from './components/EnvironmentManagerModal';
 import { CodeSnippetModal } from './components/CodeSnippetModal';
 import { CollectionRunnerModal } from './components/CollectionRunnerModal';
+import { GitSourceControlModal } from './components/GitSourceControlModal';
+import { SaveRequestModal } from './components/SaveRequestModal';
 import { ResponseInspector } from './components/ResponseInspector';
 import { curlToRequestItem } from '../../shared/curlParser';
+import type { GitCollectionStatus } from '../../shared/gitTypes';
 
 type RequestBuilderSectionTab =
   | 'params'
@@ -104,6 +107,17 @@ function findItemById(
   return undefined;
 }
 
+function isTabAttachedToCollection(
+  tab: RequestWorkspaceTab | null | undefined,
+  collections: WorkspaceCollectionEntry[],
+): boolean {
+  if (!tab || !tab.collectionPath) return false;
+  const entry = collections.find(c => c.filePath === tab.collectionPath);
+  if (!entry) return false;
+  const found = findItemById(entry.collection.items, tab.request.id);
+  return Boolean(found && found.kind === 'request');
+}
+
 const WorkspaceShell: React.FC = () => {
   const { colors } = useTheme();
   const [collections, setCollections] = useState<WorkspaceCollectionEntry[]>([]);
@@ -157,9 +171,15 @@ const WorkspaceShell: React.FC = () => {
     useState<RequestItem | null>(null);
   const [runnerModalOpen, setRunnerModalOpen] = useState<boolean>(false);
   const [runnerInitialFolderId, setRunnerInitialFolderId] = useState<string | null>(null);
+  const [gitStatusByPath, setGitStatusByPath] = useState<Record<string, GitCollectionStatus>>(
+    {},
+  );
+  const [gitModalCollectionPath, setGitModalCollectionPath] = useState<string | null>(null);
   const [importCurlModalOpen, setImportCurlModalOpen] = useState<boolean>(false);
   const [importCurlDraft, setImportCurlDraft] = useState<string>('');
   const [importCurlError, setImportCurlError] = useState<string | null>(null);
+  const [saveRequestModalTabId, setSaveRequestModalTabId] = useState<string | null>(null);
+  const [closeAfterSaveTabIds, setCloseAfterSaveTabIds] = useState<string[] | null>(null);
   const isSessionHydratedRef = useRef<boolean>(false);
 
   const loadCollectionFromDisk = useCallback(async (filePath: string): Promise<AwjcCollection> => {
@@ -443,6 +463,11 @@ const WorkspaceShell: React.FC = () => {
 
   const activeRequest = activeTab?.request ?? createDefaultHttpRequest();
 
+  const activeTabIsOrphan = useMemo(
+    () => Boolean(activeTab && !isTabAttachedToCollection(activeTab, collections)),
+    [activeTab, collections],
+  );
+
   const interpolationContext = useMemo<VariableInterpolationContext>(() => {
     const activeEnv = (activeCollection.environments ?? []).find(
       e => e.name === activeCollection.activeEnvironment,
@@ -478,13 +503,15 @@ const WorkspaceShell: React.FC = () => {
     }
   };
 
-  const handleOpenCollectionDialog = async () => {
+  const handleOpenCollectionDialog = async (): Promise<string | null> => {
     const selected = await window.electronAPI?.openCollectionDialog?.();
     if (selected && selected.length > 0) {
       for (const fp of selected) {
         await addCollectionByPath(fp);
       }
+      return selected[0];
     }
+    return null;
   };
 
   const handleImportOpenApiDialog = async () => {
@@ -509,27 +536,159 @@ const WorkspaceShell: React.FC = () => {
     setActiveCollectionPath(virtualPath);
   };
 
+  const handleCreateCollectionForSaveModal = (name: string): string => {
+    const idx = collections.length + 1;
+    const col = createEmptyCollection(name || `New Collection ${idx}`, {
+      items: [],
+    });
+    const virtualPath = `untitled-${idx}.awjc`;
+    setCollections(prev => [...prev, { filePath: virtualPath, collection: col, isDirty: true }]);
+    setActiveCollectionPath(virtualPath);
+    return virtualPath;
+  };
+
+  const handleCreateFolderForSaveModal = (
+    collectionPath: string,
+    folderName: string,
+    parentFolderId: string | null,
+  ): string => {
+    const newFld = createDefaultFolder(folderName || 'New Folder');
+    setCollections(prev =>
+      prev.map(c =>
+        c.filePath === collectionPath
+          ? {
+              ...c,
+              isDirty: true,
+              collection: {
+                ...c.collection,
+                items: insertItemIntoTree(
+                  c.collection.items,
+                  newFld,
+                  parentFolderId ?? undefined,
+                ),
+              },
+            }
+          : c,
+      ),
+    );
+    return newFld.id;
+  };
+
   const handleSaveCollection = useCallback(
-    async (filePath: string) => {
+    async (filePath: string, collectionOverride?: AwjcCollection) => {
       const entry = collections.find(c => c.filePath === filePath);
-      if (!entry || !window.electronAPI?.saveCollection) return;
-      await window.electronAPI.saveCollection({
+      const colToSave = collectionOverride ?? entry?.collection;
+      if (!colToSave || !window.electronAPI?.saveCollection) return;
+      const saved = await window.electronAPI.saveCollection({
         filePath,
-        collection: entry.collection,
+        collection: colToSave,
       });
+      if (saved === null) {
+        return;
+      }
+      const finalPath = saved?.filePath || filePath;
       setCollections(prev =>
-        prev.map(c => (c.filePath === filePath ? { ...c, isDirty: false } : c)),
+        prev.map(c =>
+          c.filePath === filePath
+            ? {
+                ...c,
+                filePath: finalPath,
+                collection: collectionOverride ?? c.collection,
+                isDirty: false,
+              }
+            : c,
+        ),
       );
+      if (finalPath !== filePath) {
+        setActiveCollectionPath(curr => (curr === filePath ? finalPath : curr));
+      }
       setTabs(prev =>
         prev.map(t =>
           t.collectionPath === filePath
-            ? { ...t, savedRequest: t.request, isDirty: false }
+            ? {
+                ...t,
+                collectionPath: finalPath,
+                savedRequest: t.request,
+                isDirty: false,
+              }
             : t,
         ),
       );
+      if (window.electronAPI?.getGitStatus) {
+        try {
+          const updatedGit = await window.electronAPI.getGitStatus(finalPath);
+          if (updatedGit) {
+            setGitStatusByPath(prev => ({ ...prev, [finalPath]: updatedGit }));
+          }
+        } catch {
+          // ignore git status error on save
+        }
+      }
     },
     [collections],
   );
+
+  const handleReloadCollectionFromDisk = useCallback(
+    async (filePath: string) => {
+      const reloaded = await loadCollectionFromDisk(filePath);
+      setCollections(prev =>
+        prev.map(c =>
+          c.filePath === filePath
+            ? {
+                ...c,
+                collection: {
+                  ...reloaded,
+                  activeEnvironment:
+                    reloaded.activeEnvironment ?? c.collection.activeEnvironment,
+                },
+                isDirty: false,
+              }
+            : c,
+        ),
+      );
+      setTabs(prev =>
+        prev.map(t => {
+          if (t.collectionPath !== filePath) return t;
+          const found = findItemById(reloaded.items, t.request.id);
+          if (found && found.kind === 'request') {
+            return {
+              ...t,
+              request: found,
+              savedRequest: found,
+              isDirty: false,
+            };
+          }
+          return {
+            ...t,
+            isDirty: false,
+          };
+        }),
+      );
+    },
+    [loadCollectionFromDisk],
+  );
+
+  // Refresh per-collection Git status whenever open collections change
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.getGitStatus || collections.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const entry of collections) {
+        try {
+          const st = await api.getGitStatus(entry.filePath);
+          if (!cancelled && st) {
+            setGitStatusByPath(prev => ({ ...prev, [entry.filePath]: st }));
+          }
+        } catch {
+          // ignore
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [collections]);
 
   const performCloseTabs = useCallback(
     (tabIdsToClose: string[], discardChanges = false) => {
@@ -603,17 +762,36 @@ const WorkspaceShell: React.FC = () => {
     const closeSet = new Set(idsToClose);
     const dirtyTargets = tabs.filter(t => closeSet.has(t.id) && t.isDirty);
 
+    // If any dirty closing tab has no open collection available, prompt Save Request to Collection modal
+    if (dirtyTargets.length > 0 && collections.length === 0) {
+      setPendingCloseTabIds(null);
+      setCloseAfterSaveTabIds(idsToClose);
+      setSaveRequestModalTabId(dirtyTargets[0].id);
+      return;
+    }
+
+    const updatedCollectionsByPath = new Map<string, AwjcCollection>();
+    for (const c of collections) {
+      updatedCollectionsByPath.set(c.filePath, c.collection);
+    }
+
     const collectionPathsToSave = new Set<string>();
     for (const t of dirtyTargets) {
-      if (t.collectionPath) {
-        collectionPathsToSave.add(t.collectionPath);
-      } else if (activeCollectionEntry) {
-        collectionPathsToSave.add(activeCollectionEntry.filePath);
+      const targetFp = t.collectionPath ?? activeCollectionEntry?.filePath;
+      if (targetFp) {
+        collectionPathsToSave.add(targetFp);
+        const col = updatedCollectionsByPath.get(targetFp);
+        if (col && !findItemById(col.items, t.request.id)) {
+          updatedCollectionsByPath.set(targetFp, {
+            ...col,
+            items: [...col.items, t.request],
+          });
+        }
       }
     }
 
     for (const fp of collectionPathsToSave) {
-      await handleSaveCollection(fp);
+      await handleSaveCollection(fp, updatedCollectionsByPath.get(fp));
     }
 
     setPendingCloseTabIds(null);
@@ -627,39 +805,168 @@ const WorkspaceShell: React.FC = () => {
     performCloseTabs(idsToClose, true);
   };
 
+  const handleSaveCollectionAs = useCallback(
+    async (filePath: string) => {
+      const entry = collections.find(c => c.filePath === filePath);
+      if (!entry || !window.electronAPI?.saveCollectionAs) return;
+      const saved = await window.electronAPI.saveCollectionAs({
+        defaultPath: filePath,
+        collection: entry.collection,
+      });
+      if (!saved) return;
+      const newPath = saved.filePath;
+      setCollections(prev =>
+        prev.map(c =>
+          c.filePath === filePath
+            ? { ...c, filePath: newPath, isDirty: false }
+            : c,
+        ),
+      );
+      setActiveCollectionPath(curr => (curr === filePath ? newPath : curr));
+      setTabs(prev =>
+        prev.map(t =>
+          t.collectionPath === filePath
+            ? { ...t, collectionPath: newPath, savedRequest: t.request, isDirty: false }
+            : t,
+        ),
+      );
+      if (window.electronAPI?.getGitStatus) {
+        try {
+          const updatedGit = await window.electronAPI.getGitStatus(newPath);
+          if (updatedGit) {
+            setGitStatusByPath(prev => ({ ...prev, [newPath]: updatedGit }));
+          }
+        } catch {
+          // ignore git status error on save
+        }
+      }
+    },
+    [collections],
+  );
+
+  const handleSaveActiveRequest = useCallback(() => {
+    if (!activeTab) {
+      if (activeCollectionEntry) {
+        void handleSaveCollection(activeCollectionEntry.filePath);
+      }
+      return;
+    }
+    if (isTabAttachedToCollection(activeTab, collections)) {
+      void handleSaveCollection(activeTab.collectionPath!);
+    } else {
+      setCloseAfterSaveTabIds(null);
+      setSaveRequestModalTabId(activeTab.id);
+    }
+  }, [activeTab, activeCollectionEntry, collections, handleSaveCollection]);
+
+  const handleConfirmSaveRequestToCollection = async (options: {
+    collectionPath: string;
+    parentFolderId: string | null;
+    requestName: string;
+  }) => {
+    const targetTab = tabs.find(t => t.id === saveRequestModalTabId) ?? activeTab;
+    if (!targetTab) {
+      setSaveRequestModalTabId(null);
+      return;
+    }
+    const colEntry = collections.find(c => c.filePath === options.collectionPath);
+    if (!colEntry) {
+      setSaveRequestModalTabId(null);
+      return;
+    }
+
+    const updatedReq: RequestItem = {
+      ...targetTab.request,
+      name: options.requestName.trim() || targetTab.request.name || 'Untitled Request',
+    };
+
+    const alreadyInTree = Boolean(findItemById(colEntry.collection.items, updatedReq.id));
+    const nextItems = alreadyInTree
+      ? updateItemInTree(colEntry.collection.items, updatedReq.id, () => updatedReq)
+      : insertItemIntoTree(
+          colEntry.collection.items,
+          updatedReq,
+          options.parentFolderId ?? undefined,
+        );
+
+    const updatedCollection: AwjcCollection = {
+      ...colEntry.collection,
+      items: nextItems,
+    };
+
+    setCollections(prev =>
+      prev.map(c =>
+        c.filePath === options.collectionPath
+          ? {
+              ...c,
+              collection: updatedCollection,
+              isDirty: false,
+            }
+          : c,
+      ),
+    );
+    setTabs(prev =>
+      prev.map(t =>
+        t.id === targetTab.id
+          ? {
+              ...t,
+              collectionPath: options.collectionPath,
+              request: updatedReq,
+              savedRequest: updatedReq,
+              isDirty: false,
+            }
+          : t,
+      ),
+    );
+    setActiveCollectionPath(options.collectionPath);
+    setSaveRequestModalTabId(null);
+
+    await handleSaveCollection(options.collectionPath, updatedCollection);
+
+    if (closeAfterSaveTabIds && closeAfterSaveTabIds.length > 0) {
+      const toClose = closeAfterSaveTabIds;
+      setCloseAfterSaveTabIds(null);
+      performCloseTabs(toClose, false);
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
-      if (isMod && e.key.toLowerCase() === 's' && !e.shiftKey) {
+      if (isMod && e.key.toLowerCase() === 's') {
         const targetPath = activeTab?.collectionPath ?? activeCollectionEntry?.filePath;
-        if (targetPath) {
-          e.preventDefault();
-          void handleSaveCollection(targetPath);
-        } else if (activeTab?.isDirty) {
-          e.preventDefault();
-          setTabs(prev =>
-            prev.map(t =>
-              t.id === activeTab.id
-                ? { ...t, savedRequest: t.request, isDirty: false }
-                : t,
-            ),
-          );
+        if (e.shiftKey) {
+          if (targetPath) {
+            e.preventDefault();
+            void handleSaveCollectionAs(targetPath);
+          }
+          return;
         }
+        e.preventDefault();
+        handleSaveActiveRequest();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, activeCollectionEntry, handleSaveCollection]);
+  }, [activeTab, activeCollectionEntry, handleSaveActiveRequest, handleSaveCollectionAs]);
 
-  const handleExportCollection = async (filePath: string, format: 'yaml' | 'json') => {
-    const entry = collections.find(c => c.filePath === filePath);
-    if (!entry || !window.electronAPI?.saveCollectionAs) return;
-    await window.electronAPI.saveCollectionAs({
-      defaultPath: filePath,
-      collection: entry.collection,
-      format,
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    const targetPath = activeTab?.collectionPath ?? activeCollectionEntry?.filePath;
+    const unsubscribeMenuSave = api.onMenuSaveCollection?.(() => {
+      handleSaveActiveRequest();
     });
-  };
+    const unsubscribeMenuSaveAs = api.onMenuSaveCollectionAs?.(() => {
+      if (targetPath) {
+        void handleSaveCollectionAs(targetPath);
+      }
+    });
+    return () => {
+      unsubscribeMenuSave?.();
+      unsubscribeMenuSaveAs?.();
+    };
+  }, [activeTab, activeCollectionEntry, handleSaveActiveRequest, handleSaveCollectionAs]);
 
   const performCloseCollection = useCallback((filePath: string) => {
     setCollections(prev => {
@@ -837,6 +1144,15 @@ const WorkspaceShell: React.FC = () => {
       <TopToolbar
         activeCollectionName={activeCollectionEntry?.collection.metadata.name}
         activeCollectionPath={activeCollectionEntry?.filePath}
+        activeCollectionDirty={Boolean(activeCollectionEntry?.isDirty)}
+        activeGitStatus={
+          activeCollectionEntry ? (gitStatusByPath[activeCollectionEntry.filePath] ?? null) : null
+        }
+        onOpenGitSourceControl={
+          activeCollectionEntry
+            ? () => setGitModalCollectionPath(activeCollectionEntry.filePath)
+            : undefined
+        }
         environments={activeCollection.environments ?? []}
         activeEnvironmentName={activeCollection.activeEnvironment}
         onSelectEnvironment={envName => {
@@ -904,26 +1220,25 @@ const WorkspaceShell: React.FC = () => {
                 }
               }}
               onSaveHistoryEntryToCollection={entry => {
-                if (!entry.requestSnapshot || !activeCollectionEntry) return;
+                if (!entry.requestSnapshot) return;
                 const savedCopy: RequestItem = {
                   ...entry.requestSnapshot,
                   id: generateAwjcId('req'),
                 };
-                setCollections(prev =>
-                  prev.map(c =>
-                    c.filePath === activeCollectionEntry.filePath
-                      ? {
-                          ...c,
-                          isDirty: true,
-                          collection: {
-                            ...c.collection,
-                            items: [...c.collection.items, savedCopy],
-                          },
-                        }
-                      : c,
-                  ),
-                );
-                handleSelectRequestFromTree(activeCollectionEntry.filePath, savedCopy);
+                const newTabId = generateAwjcId('tab');
+                setTabs(prev => [
+                  ...prev,
+                  {
+                    id: newTabId,
+                    collectionPath: null,
+                    request: savedCopy,
+                    savedRequest: savedCopy,
+                    isDirty: true,
+                  },
+                ]);
+                setActiveTabId(newTabId);
+                setCloseAfterSaveTabIds(null);
+                setSaveRequestModalTabId(newTabId);
               }}
               onClearHistory={() => setHistoryEntries([])}
               onNewCollection={handleNewCollection}
@@ -934,7 +1249,7 @@ const WorkspaceShell: React.FC = () => {
                 setRunnerModalOpen(true);
               }}
               onSaveCollection={fp => void handleSaveCollection(fp)}
-              onExportCollection={(fp, fmt) => void handleExportCollection(fp, fmt)}
+              onSaveCollectionAs={fp => void handleSaveCollectionAs(fp)}
               onCloseCollection={handleCloseCollection}
               onNewHttpRequest={(fp, parentFolderId) => {
                 const newReq = createDefaultHttpRequest();
@@ -1011,6 +1326,25 @@ const WorkspaceShell: React.FC = () => {
                   }),
                 );
               }}
+              onRenameCollection={(fp, newName) => {
+                setCollections(prev =>
+                  prev.map(c =>
+                    c.filePath === fp
+                      ? {
+                          ...c,
+                          isDirty: true,
+                          collection: {
+                            ...c.collection,
+                            metadata: {
+                              ...c.collection.metadata,
+                              name: newName,
+                            },
+                          },
+                        }
+                      : c,
+                  ),
+                );
+              }}
               onRenameItem={(fp, itemId, newName) => {
                 setCollections(prev =>
                   prev.map(c =>
@@ -1051,6 +1385,11 @@ const WorkspaceShell: React.FC = () => {
                 setCodeSnippetTargetRequest(req);
                 setCodeSnippetModalOpen(true);
               }}
+              gitStatusByCollectionPath={gitStatusByPath}
+              onOpenGitSourceControl={fp => {
+                setActiveCollectionPath(fp);
+                setGitModalCollectionPath(fp);
+              }}
             />
           }
           secondPane={
@@ -1068,7 +1407,7 @@ const WorkspaceShell: React.FC = () => {
                     ...prev,
                     {
                       id: newTabId,
-                      collectionPath: activeCollectionPath,
+                      collectionPath: null,
                       request: newReq,
                       savedRequest: newReq,
                       isDirty: false,
@@ -1136,7 +1475,7 @@ const WorkspaceShell: React.FC = () => {
                         setTabs([
                           {
                             id: newTabId,
-                            collectionPath: activeCollectionPath,
+                            collectionPath: null,
                             request: createDefaultHttpRequest(),
                             isDirty: false,
                           },
@@ -1194,6 +1533,8 @@ const WorkspaceShell: React.FC = () => {
                             pathParams={activeRequest.pathParams}
                             interpolationContext={interpolationContext}
                             isSending={Boolean(inFlightRequestId)}
+                            isDirty={Boolean(activeTab?.isDirty)}
+                            isOrphan={activeTabIsOrphan}
                             onMethodChange={(method, protocol) => {
                               const nextProtocol = protocol ?? activeRequest.protocol;
                               updateActiveRequest(r => ({
@@ -1226,6 +1567,7 @@ const WorkspaceShell: React.FC = () => {
                             }
                             onSend={() => void handleSendRequest()}
                             onCancel={() => void handleCancelRequest()}
+                            onSave={handleSaveActiveRequest}
                             onEditVariable={() => {
                               setEnvModalTab('environments');
                               setEnvModalOpen(true);
@@ -1715,6 +2057,47 @@ const WorkspaceShell: React.FC = () => {
         }}
       />
 
+      {/* Save Request to Collection Modal */}
+      {(() => {
+        const modalTargetTab =
+          tabs.find(t => t.id === saveRequestModalTabId) ?? activeTab;
+        return (
+          <SaveRequestModal
+            isOpen={saveRequestModalTabId !== null && modalTargetTab !== null}
+            request={modalTargetTab?.request ?? activeRequest}
+            collections={collections}
+            activeCollectionPath={activeCollectionPath}
+            onCreateCollection={handleCreateCollectionForSaveModal}
+            onOpenCollectionDialog={handleOpenCollectionDialog}
+            onCreateFolder={handleCreateFolderForSaveModal}
+            onConfirmSave={opts => void handleConfirmSaveRequestToCollection(opts)}
+            onClose={() => {
+              setSaveRequestModalTabId(null);
+              setCloseAfterSaveTabIds(null);
+            }}
+          />
+        );
+      })()}
+
+      {/* Per-Collection Git Source Control & YAML Diff Modal */}
+      {(() => {
+        const gitTargetEntry = collections.find(c => c.filePath === gitModalCollectionPath);
+        return (
+          <GitSourceControlModal
+            isOpen={gitModalCollectionPath !== null}
+            collectionFilePath={gitModalCollectionPath}
+            collection={gitTargetEntry?.collection ?? null}
+            isCollectionDirty={Boolean(gitTargetEntry?.isDirty)}
+            onSaveCollection={fp => handleSaveCollection(fp)}
+            onReloadCollection={fp => handleReloadCollectionFromDisk(fp)}
+            onStatusUpdated={(fp, st) =>
+              setGitStatusByPath(prev => ({ ...prev, [fp]: st }))
+            }
+            onClose={() => setGitModalCollectionPath(null)}
+          />
+        );
+      })()}
+
       {/* Import cURL Modal */}
       {importCurlModalOpen && (
         <div
@@ -1809,7 +2192,7 @@ const WorkspaceShell: React.FC = () => {
                       ...prev,
                       {
                         id: newTabId,
-                        collectionPath: activeCollectionPath,
+                        collectionPath: null,
                         request: importedReq,
                         savedRequest: importedReq,
                         isDirty: true,

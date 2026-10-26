@@ -124,4 +124,51 @@ describe('RequestUrlBar', () => {
     expect(onPasteCurl.mock.calls[0][0].url).toBe('https://api.example.com/v1/orders');
     expect(onUrlChange).not.toHaveBeenCalled();
   });
+
+  it('renders the icon-only Save button after Send, enabled (orange) when dirty and disabled (gray) when unchanged', () => {
+    const onSave = vi.fn();
+
+    const { rerender } = render(
+      <RequestUrlBar
+        method="GET"
+        url="https://awapi.com"
+        isDirty={true}
+        isOrphan={true}
+        onMethodChange={vi.fn()}
+        onUrlChange={vi.fn()}
+        onSend={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    const saveBtn = screen.getByTestId('save-request-btn');
+    expect(saveBtn).toBeInTheDocument();
+    expect(saveBtn).not.toBeDisabled();
+    expect(saveBtn).toHaveAttribute('data-unsaved', 'true');
+    expect(saveBtn).toHaveAttribute('title', 'Save Request to Collection (Cmd/Ctrl+S)');
+    expect(saveBtn).toHaveTextContent('');
+
+    fireEvent.click(saveBtn);
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <RequestUrlBar
+        method="GET"
+        url="https://awapi.com"
+        isDirty={false}
+        isOrphan={false}
+        onMethodChange={vi.fn()}
+        onUrlChange={vi.fn()}
+        onSend={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByTestId('save-request-btn')).toBeDisabled();
+    expect(screen.getByTestId('save-request-btn')).toHaveAttribute('data-unsaved', 'false');
+    expect(screen.getByTestId('save-request-btn')).toHaveAttribute(
+      'title',
+      'Request is saved (Cmd/Ctrl+S)',
+    );
+  });
 });

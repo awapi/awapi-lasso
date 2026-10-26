@@ -72,6 +72,42 @@ describe('App shell', () => {
       copyToClipboard: vi.fn().mockResolvedValue(undefined),
       readClipboardText: vi.fn().mockResolvedValue(''),
       checkForUpdates: vi.fn().mockResolvedValue(undefined),
+      getGitStatus: vi.fn().mockResolvedValue({
+        collectionFilePath: '/Users/me/apis/payments.awjc',
+        folderPath: '/Users/me/apis',
+        isGitRepo: true,
+        repoRootPath: '/Users/me/apis',
+        relativeFilePath: 'payments.awjc',
+        branch: 'main',
+        ahead: 0,
+        behind: 0,
+        fileStatus: 'clean',
+        folderChangedFiles: [],
+        branches: ['main'],
+        safety: {
+          safe: true,
+          secretsSidecarIgnored: true,
+          hasPlaintextSecrets: false,
+          plaintextSecretWarnings: [],
+          issues: [],
+        },
+      }),
+      initGitRepo: vi.fn().mockResolvedValue({ ok: true, message: 'Initialized' }),
+      ensureGitignore: vi.fn().mockResolvedValue({ ok: true, message: 'Updated' }),
+      getGitDiff: vi.fn().mockResolvedValue({
+        collectionFilePath: '/Users/me/apis/payments.awjc',
+        commitRef: 'HEAD',
+        headContent: '',
+        workingContent: '',
+        rawUnifiedDiff: '',
+        hasChanges: false,
+      }),
+      getGitLog: vi.fn().mockResolvedValue([]),
+      checkoutGitBranch: vi.fn().mockResolvedValue({ ok: true, message: 'Switched' }),
+      commitGitChanges: vi.fn().mockResolvedValue({ ok: true, message: 'Committed' }),
+      pullGit: vi.fn().mockResolvedValue({ ok: true, message: 'Pulled' }),
+      pushGit: vi.fn().mockResolvedValue({ ok: true, message: 'Pushed' }),
+      revertGitChanges: vi.fn().mockResolvedValue({ ok: true, message: 'Reverted' }),
       onMenuNewCollection: vi.fn(() => () => {}),
       onMenuOpenCollection: vi.fn(() => () => {}),
       onMenuSaveCollection: vi.fn(() => () => {}),
@@ -459,5 +495,60 @@ describe('App shell', () => {
       expect(window.electronAPI.saveCollection).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('empty-collections-msg')).toBeInTheDocument();
     });
+  });
+
+  it('prevents orphan request saves by opening SaveRequestModal on Save button or Cmd/Ctrl+S, allowing collection and subfolder creation', async () => {
+    render(<App />);
+
+    // Edit URL on the initial unattached request tab
+    const urlInput = screen.getByTestId('url-input');
+    fireEvent.change(urlInput, { target: { value: 'https://awapi.com' } });
+    expect(screen.getByTestId('save-request-btn')).toHaveAttribute('data-unsaved', 'true');
+
+    // Pressing Ctrl+S (or clicking Save button) when no collection is open opens SaveRequestModal
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    expect(screen.getByTestId('save-request-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('save-modal-empty-collections')).toBeInTheDocument();
+
+    // Create a new collection inside the modal
+    fireEvent.click(screen.getByTestId('save-modal-empty-new-collection-cta'));
+    fireEvent.change(screen.getByTestId('save-modal-new-collection-input'), {
+      target: { value: 'Awapi Platform' },
+    });
+    fireEvent.click(screen.getByTestId('save-modal-confirm-new-collection-btn'));
+
+    // Create a root folder "Core" and a subfolder "Public" inside the modal
+    fireEvent.click(screen.getByTestId('save-modal-new-folder-btn'));
+    fireEvent.change(screen.getByTestId('save-modal-new-folder-input'), {
+      target: { value: 'Core' },
+    });
+    fireEvent.click(screen.getByTestId('save-modal-confirm-new-folder-btn'));
+
+    // Since "Core" is now selected, clicking "+ New Subfolder" creates a subfolder under "Core"
+    fireEvent.click(screen.getByTestId('save-modal-new-folder-btn'));
+    fireEvent.change(screen.getByTestId('save-modal-new-folder-input'), {
+      target: { value: 'Public' },
+    });
+    fireEvent.click(screen.getByTestId('save-modal-confirm-new-folder-btn'));
+
+    expect(screen.getByTestId('save-modal-destination-summary')).toHaveTextContent(
+      'Awapi Platform / Core / Public',
+    );
+
+    // Name the request and confirm save
+    fireEvent.change(screen.getByTestId('save-request-name-input'), {
+      target: { value: 'Awapi Home' },
+    });
+    fireEvent.click(screen.getByTestId('save-request-modal-confirm-btn'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('save-request-modal')).not.toBeInTheDocument();
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledTimes(1);
+    });
+
+    // Request is now attached to the collection (no longer orphan or dirty)
+    expect(screen.getByTestId('save-request-btn')).toHaveAttribute('data-unsaved', 'false');
+    expect(screen.getByTestId('collection-list')).toHaveTextContent('Awapi Platform');
+    expect(screen.getByTestId('collection-list')).toHaveTextContent('Awapi Home');
   });
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Code2, Edit2, Eye, EyeOff, Send, Square } from 'lucide-react';
+import { Code2, Edit2, Eye, EyeOff, Save, Send, Square } from 'lucide-react';
 import {
   inspectVariablesInText,
   type InspectedVariableToken,
@@ -34,10 +34,13 @@ export interface RequestUrlBarProps {
   pathParams?: PathParamEntry[];
   interpolationContext?: VariableInterpolationContext;
   isSending?: boolean;
+  isDirty?: boolean;
+  isOrphan?: boolean;
   onMethodChange: (method: string, protocol?: 'http' | 'graphql') => void;
   onUrlChange: (url: string) => void;
   onSend: () => void;
   onCancel?: () => void;
+  onSave?: () => void;
   onEditVariable?: (variableName: string, scope: string) => void;
   onPasteCurl?: (parsed: ParsedCurlCommand) => void;
   onOpenCodeSnippet?: () => void;
@@ -70,10 +73,13 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
   pathParams = [],
   interpolationContext = {},
   isSending = false,
+  isDirty = false,
+  isOrphan = false,
   onMethodChange,
   onUrlChange,
   onSend,
   onCancel,
+  onSave,
   onEditVariable,
   onPasteCurl,
   onOpenCodeSnippet,
@@ -337,6 +343,39 @@ export const RequestUrlBar: React.FC<RequestUrlBarProps> = ({
           >
             <Send size={14} />
             Send
+          </button>
+        )}
+
+        {/* Save Request Button (Icon-only with tooltip) */}
+        {onSave && (
+          <button
+            type="button"
+            aria-label="Save Request"
+            data-testid="save-request-btn"
+            data-unsaved={String(Boolean(isDirty))}
+            disabled={!isDirty}
+            onClick={onSave}
+            title={
+              !isDirty
+                ? 'Request is saved (Cmd/Ctrl+S)'
+                : isOrphan
+                  ? 'Save Request to Collection (Cmd/Ctrl+S)'
+                  : 'Save Request (Cmd/Ctrl+S) — Unsaved changes'
+            }
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '8px 10px',
+              borderRadius: 6,
+              border: `1px solid ${isDirty ? colors.accent : colors.border}`,
+              backgroundColor: colors.bgSecondary,
+              color: isDirty ? colors.accent : colors.textSecondary,
+              opacity: isDirty ? 1 : 0.55,
+              cursor: isDirty ? 'pointer' : 'not-allowed',
+            }}
+          >
+            <Save size={15} color={isDirty ? colors.accent : colors.textSecondary} />
           </button>
         )}
       </div>

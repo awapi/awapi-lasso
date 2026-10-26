@@ -79,7 +79,6 @@ describe('collectionFileService', () => {
 
     // Opening the file back from disk hydrates the secret from OS Keychain
     const opened = openCollectionFromFile('/workspace/orders.awjc', deps);
-    expect(opened.format).toBe('yaml');
     const localEnv = opened.collection.environments?.[0];
     const hydratedSecretVar = localEnv?.variables.find(v => v.key === 'clientSecret');
     expect(hydratedSecretVar?.secret).toBe(true);

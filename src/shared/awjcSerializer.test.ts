@@ -8,7 +8,6 @@ import {
 import {
   parseCollectionFile,
   serializeCollectionToYaml,
-  serializeCollectionToJson,
 } from './awjcSerializer';
 import sampleOrdersYaml from '../../samples/orders-and-inventory.awjc?raw';
 import samplePublicApisYaml from '../../samples/public-apis.awjc?raw';
@@ -43,7 +42,6 @@ describe('awjcSerializer', () => {
     expect(yamlText).toContain('kind: Collection');
 
     const parsed = parseCollectionFile(yamlText);
-    expect(parsed.format).toBe('yaml');
     expect(parsed.collection.metadata.id).toBe('col_orders_01');
     expect(parsed.collection.items).toHaveLength(1);
     const parsedFolder = parsed.collection.items[0];
@@ -55,7 +53,7 @@ describe('awjcSerializer', () => {
     }
   });
 
-  it('strips plaintext values from secret: true variables and auth configs on YAML and JSON serialization', () => {
+  it('strips plaintext values from secret: true variables and auth configs on YAML serialization', () => {
     const col = createEmptyCollection('Secrets Test', {
       metadata: { id: 'col_sec_1', name: 'Secrets Test' },
       variables: [
@@ -94,15 +92,9 @@ describe('awjcSerializer', () => {
     expect(yamlOut).toContain('secret: true');
     expect(yamlOut).toContain('pub-123');
 
-    const jsonOut = serializeCollectionToJson(col);
-    expect(jsonOut).not.toContain('DO_NOT_WRITE_ME_TO_DISK');
-    expect(jsonOut).not.toContain('SUPER_SECRET_PASSWORD');
-    expect(jsonOut).not.toContain('OAUTH_CLIENT_SECRET_VALUE');
-
-    const parsedFromJson = parseCollectionFile(jsonOut);
-    expect(parsedFromJson.format).toBe('json');
-    expect(parsedFromJson.collection.variables?.[1].secret).toBe(true);
-    expect(parsedFromJson.collection.variables?.[1].value).toBeUndefined();
+    const parsedFromYaml = parseCollectionFile(yamlOut);
+    expect(parsedFromYaml.collection.variables?.[1].secret).toBe(true);
+    expect(parsedFromYaml.collection.variables?.[1].value).toBeUndefined();
   });
 
   it('extracts plaintext secrets on load when a hand-edited YAML file includes value on a secret: true entry', () => {
@@ -140,14 +132,12 @@ items: []
 
   it('validates and parses samples/orders-and-inventory.awjc and samples/public-apis.awjc cleanly', () => {
     const parsed = parseCollectionFile(sampleOrdersYaml);
-    expect(parsed.format).toBe('yaml');
     expect(parsed.collection.metadata.id).toBe('col_orders_platform_01');
     expect(parsed.collection.authProfiles).toHaveLength(2);
     expect(parsed.collection.environments).toHaveLength(2);
     expect(parsed.collection.items).toHaveLength(2);
 
     const parsedPublic = parseCollectionFile(samplePublicApisYaml);
-    expect(parsedPublic.format).toBe('yaml');
     expect(parsedPublic.collection.metadata.id).toBe('col_public_apis_01');
     expect(parsedPublic.collection.items).toHaveLength(2);
   });

@@ -100,6 +100,26 @@ import {
   type GraphQLLoadLocalSchemaRequest,
   type GraphQLSchemaCacheCoordinate,
 } from './graphqlIntrospection';
+import {
+  checkoutCollectionGitBranch,
+  commitCollectionGitChanges,
+  ensureCollectionGitignore,
+  getCollectionGitDiff,
+  getCollectionGitLog,
+  getCollectionGitStatus,
+  initCollectionGitRepo,
+  pullCollectionGit,
+  pushCollectionGit,
+  revertCollectionGitChanges,
+  type GitServiceDeps,
+} from './gitService';
+import type {
+  GitCheckoutBranchRequest,
+  GitCommitRequest,
+  GitDiffRequest,
+  GitLogRequest,
+  GitRevertRequest,
+} from '../shared/gitTypes';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -574,6 +594,32 @@ function buildHttpEngineDeps(): HttpEngineDeps {
   };
 }
 
+function buildGitServiceDeps(): GitServiceDeps {
+  return {
+    runGit: (cwd: string, args: string[]) =>
+      new Promise(resolve => {
+        const child = spawn('git', args, { cwd, windowsHide: true });
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', d => {
+          stdout += String(d);
+        });
+        child.stderr?.on('data', d => {
+          stderr += String(d);
+        });
+        child.on('error', err => {
+          resolve({ code: 1, stdout, stderr: err.message });
+        });
+        child.on('close', code => {
+          resolve({ code: code ?? 1, stdout, stderr });
+        });
+      }),
+    exists: (p: string) => fs.existsSync(p),
+    readFile: (p: string) => fs.readFileSync(p, 'utf-8'),
+    writeFile: (p: string, content: string) => fs.writeFileSync(p, content, 'utf-8'),
+  };
+}
+
 const collectionWatchers = new CollectionWatcherRegistry();
 
 function registerIpcHandlers(): void {
@@ -694,10 +740,34 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'collection:save',
-    (
-      _event,
-      options: { filePath: string; collection: AwjcCollection; format?: 'yaml' | 'json' },
-    ) => {
+    async (_event, options: { filePath: string; collection: AwjcCollection }) => {
+      if (!path.isAbsolute(options.filePath)) {
+        const defaultFileName = `${options.collection.metadata.name.replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase() || 'collection'}.awjc`;
+        const lastDir = getLastOpenDirectory();
+        const computedDefaultPath = lastDir
+          ? join(lastDir, defaultFileName)
+          : defaultFileName;
+
+        const result = await dialog.showSaveDialog(mainWindow ?? undefined!, {
+          title: 'Save AwapiLasso Collection',
+          defaultPath: computedDefaultPath,
+          filters: [
+            { name: 'AwapiLasso Collection (*.awjc)', extensions: ['awjc'] },
+            { name: 'AwapiLasso Collection Alias (*.awj)', extensions: ['awj'] },
+          ],
+        });
+        if (result.canceled || !result.filePath) return null;
+        setLastOpenDirectoryFromFile(result.filePath);
+        collectionWatchers.markSelfSaved(result.filePath);
+        return saveCollectionToFile(
+          {
+            filePath: result.filePath,
+            collection: options.collection,
+          },
+          buildCollectionFileServiceDeps(),
+        );
+      }
+
       collectionWatchers.markSelfSaved(options.filePath);
       return saveCollectionToFile(options, buildCollectionFileServiceDeps());
     },
@@ -710,7 +780,6 @@ function registerIpcHandlers(): void {
       options: {
         defaultPath?: string;
         collection: AwjcCollection;
-        format?: 'yaml' | 'json';
       },
     ) => {
       const defaultFileName = `${options.collection.metadata.name.replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase() || 'collection'}.awjc`;
@@ -737,7 +806,6 @@ function registerIpcHandlers(): void {
         {
           filePath: result.filePath,
           collection: options.collection,
-          format: options.format,
         },
         buildCollectionFileServiceDeps(),
       );
@@ -847,6 +915,38 @@ function registerIpcHandlers(): void {
   ipcMain.handle('updater:check', () =>
     checkForUpdates({ notifyIfUpToDate: true, parentWindow: mainWindow }),
   );
+
+  ipcMain.handle('git:getStatus', (_event, collectionFilePath: string) =>
+    getCollectionGitStatus(collectionFilePath, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:initRepo', (_event, collectionFilePath: string) =>
+    initCollectionGitRepo(collectionFilePath, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:ensureGitignore', (_event, collectionFilePath: string) =>
+    ensureCollectionGitignore(collectionFilePath, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:getDiff', (_event, request: GitDiffRequest) =>
+    getCollectionGitDiff(request, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:getLog', (_event, request: GitLogRequest) =>
+    getCollectionGitLog(request, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:checkoutBranch', (_event, request: GitCheckoutBranchRequest) =>
+    checkoutCollectionGitBranch(request, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:commit', (_event, request: GitCommitRequest) =>
+    commitCollectionGitChanges(request, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:pull', (_event, collectionFilePath: string) =>
+    pullCollectionGit(collectionFilePath, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:push', (_event, collectionFilePath: string) =>
+    pushCollectionGit(collectionFilePath, buildGitServiceDeps()),
+  );
+  ipcMain.handle('git:revert', (_event, request: GitRevertRequest) => {
+    collectionWatchers.markSelfSaved(request.collectionFilePath);
+    return revertCollectionGitChanges(request, buildGitServiceDeps());
+  });
 }
 
 if (gotSingleInstanceLock) {
