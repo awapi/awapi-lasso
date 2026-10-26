@@ -544,6 +544,7 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
                         readOnly: true,
                         renderSideBySide: true,
                         minimap: { enabled: false },
+                        stickyScroll: { enabled: false },
                         fontSize: 12,
                       }}
                     />
@@ -579,6 +580,7 @@ export const ResponseInspector: React.FC<ResponseInspectorProps> = ({
                   options={{
                     readOnly: true,
                     minimap: { enabled: false },
+                    stickyScroll: { enabled: false },
                     fontSize: 12,
                     wordWrap: bodyView === 'raw' ? 'on' : 'off',
                   }}

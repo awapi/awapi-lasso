@@ -307,6 +307,18 @@ export const electronAPI = {
       ipcRenderer.removeListener('menu:newTerminal', listener);
     };
   },
+  setUnsavedChanges: (hasUnsaved: boolean) => {
+    ipcRenderer.send('app:setUnsavedChanges', hasUnsaved);
+  },
+  onAppCloseRequested: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('app:closeRequested', listener);
+    return () => {
+      ipcRenderer.removeListener('app:closeRequested', listener);
+    };
+  },
+  respondToAppClose: (proceed: boolean) =>
+    ipcRenderer.invoke('app:respondToClose', proceed) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

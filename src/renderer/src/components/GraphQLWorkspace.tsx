@@ -958,6 +958,7 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
                           }
                           options={{
                             minimap: { enabled: false },
+                            stickyScroll: { enabled: false },
                             fontSize: 12,
                             scrollBeyondLastLine: false,
                             automaticLayout: true,
@@ -1019,6 +1020,7 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
                           }
                           options={{
                             minimap: { enabled: false },
+                            stickyScroll: { enabled: false },
                             fontSize: 12,
                             scrollBeyondLastLine: false,
                             automaticLayout: true,

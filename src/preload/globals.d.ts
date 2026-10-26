@@ -181,6 +181,12 @@ declare global {
       onMenuImportOpenApi: (callback: () => void) => () => void;
       onMenuToggleTerminal: (callback: () => void) => () => void;
       onMenuNewTerminal: (callback: () => void) => () => void;
+      /** Reports whether any open collection has unsaved changes so the main process can guard window close / app quit. */
+      setUnsavedChanges: (hasUnsaved: boolean) => void;
+      /** Fires when the user tries to close the window or quit while unsaved changes exist; answer via `respondToAppClose`. */
+      onAppCloseRequested: (callback: () => void) => () => void;
+      /** Answers a close prompt: `true` lets the window close (or the app quit), `false` cancels. */
+      respondToAppClose: (proceed: boolean) => Promise<void>;
     };
   }
 }

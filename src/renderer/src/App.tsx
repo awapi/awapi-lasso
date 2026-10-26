@@ -151,6 +151,8 @@ const WorkspaceShell: React.FC = () => {
   const [pendingCloseCollectionPath, setPendingCloseCollectionPath] = useState<string | null>(
     null,
   );
+  const [appClosePromptOpen, setAppClosePromptOpen] = useState<boolean>(false);
+  const [appCloseSaving, setAppCloseSaving] = useState<boolean>(false);
   const [activeConfigTab, setActiveConfigTab] = useState<RequestBuilderSectionTab>('params');
 
   const [historyEntries, setHistoryEntries] = useState<RequestHistoryEntry[]>([]);
@@ -521,10 +523,15 @@ const WorkspaceShell: React.FC = () => {
     [collections, activeCollectionPath],
   );
 
-  const activeCollection = useMemo(
-    () => activeCollectionEntry?.collection ?? createEmptyCollection('Default Workspace'),
-    [activeCollectionEntry],
-  );
+  const activeCollection = useMemo(() => {
+    const col = activeCollectionEntry?.collection ?? createEmptyCollection('Default Workspace');
+    const envs = col.environments ?? [];
+    // The toolbar shows the first environment when none is selected, so requests must use it too.
+    if (envs.length > 0 && !envs.some(e => e.name === col.activeEnvironment)) {
+      return { ...col, activeEnvironment: envs[0].name };
+    }
+    return col;
+  }, [activeCollectionEntry]);
 
   const activeTab = useMemo(
     () => tabs.find(t => t.id === activeTabId) ?? tabs[0] ?? null,
@@ -645,16 +652,16 @@ const WorkspaceShell: React.FC = () => {
   };
 
   const handleSaveCollection = useCallback(
-    async (filePath: string, collectionOverride?: AwjcCollection) => {
+    async (filePath: string, collectionOverride?: AwjcCollection): Promise<boolean> => {
       const entry = collections.find(c => c.filePath === filePath);
       const colToSave = collectionOverride ?? entry?.collection;
-      if (!colToSave || !window.electronAPI?.saveCollection) return;
+      if (!colToSave || !window.electronAPI?.saveCollection) return false;
       const saved = await window.electronAPI.saveCollection({
         filePath,
         collection: colToSave,
       });
       if (saved === null) {
-        return;
+        return false;
       }
       const finalPath = saved?.filePath || filePath;
       setCollections(prev =>
@@ -694,6 +701,7 @@ const WorkspaceShell: React.FC = () => {
           // ignore git status error on save
         }
       }
+      return true;
     },
     [collections],
   );
@@ -1085,6 +1093,41 @@ const WorkspaceShell: React.FC = () => {
     const fp = pendingCloseCollectionPath;
     setPendingCloseCollectionPath(null);
     performCloseCollection(fp);
+  };
+
+  const hasUnsavedCollections = collections.some(c => c.isDirty);
+
+  useEffect(() => {
+    window.electronAPI?.setUnsavedChanges?.(hasUnsavedCollections);
+  }, [hasUnsavedCollections]);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onAppCloseRequested?.(() => {
+      setAppClosePromptOpen(true);
+    });
+    return () => unsubscribe?.();
+  }, []);
+
+  const handleAppCloseSaveAll = async () => {
+    setAppCloseSaving(true);
+    let allSaved = true;
+    for (const entry of collections.filter(c => c.isDirty)) {
+      const ok = await handleSaveCollection(entry.filePath);
+      if (!ok) allSaved = false;
+    }
+    setAppCloseSaving(false);
+    setAppClosePromptOpen(false);
+    await window.electronAPI?.respondToAppClose?.(allSaved);
+  };
+
+  const handleAppCloseDiscard = () => {
+    setAppClosePromptOpen(false);
+    void window.electronAPI?.respondToAppClose?.(true);
+  };
+
+  const handleAppCloseCancel = () => {
+    setAppClosePromptOpen(false);
+    void window.electronAPI?.respondToAppClose?.(false);
   };
 
   const handleSelectRequestFromTree = (collectionPath: string, req: RequestItem) => {
@@ -2214,20 +2257,156 @@ const WorkspaceShell: React.FC = () => {
         );
       })()}
 
+      {/* Quit / Close Window With Unsaved Collections Modal */}
+      {appClosePromptOpen && (
+        <div
+          data-testid="app-close-unsaved-modal-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 300,
+            backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Unsaved Changes Before Quit"
+            data-testid="app-close-unsaved-modal"
+            style={{
+              width: '100%',
+              maxWidth: 460,
+              backgroundColor: colors.bgPrimary,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 10,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.45)',
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 15, color: colors.textPrimary }}>
+              Do you want to save your changes before quitting?
+            </div>
+            <div style={{ fontSize: 13, color: colors.textSecondary, lineHeight: 1.5 }}>
+              These collections have unsaved changes that will be lost if you don&apos;t save them:
+            </div>
+            <ul
+              data-testid="app-close-unsaved-list"
+              style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: colors.textPrimary }}
+            >
+              {collections
+                .filter(c => c.isDirty)
+                .map(c => (
+                  <li key={c.filePath} title={c.filePath}>
+                    {c.collection.metadata.name || c.filePath}
+                  </li>
+                ))}
+            </ul>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: 8,
+                marginTop: 4,
+              }}
+            >
+              <button
+                type="button"
+                data-testid="app-close-cancel-btn"
+                disabled={appCloseSaving}
+                onClick={handleAppCloseCancel}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 6,
+                  border: `1px solid ${colors.border}`,
+                  backgroundColor: 'transparent',
+                  color: colors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="app-close-discard-btn"
+                disabled={appCloseSaving}
+                onClick={handleAppCloseDiscard}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 6,
+                  border: `1px solid ${colors.danger}`,
+                  backgroundColor: 'transparent',
+                  color: colors.danger,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Don&apos;t Save
+              </button>
+              <button
+                type="button"
+                data-testid="app-close-save-all-btn"
+                disabled={appCloseSaving}
+                onClick={() => void handleAppCloseSaveAll()}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 6,
+                  border: 'none',
+                  backgroundColor: colors.accent,
+                  color: '#ffffff',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: appCloseSaving ? 'wait' : 'pointer',
+                }}
+              >
+                {appCloseSaving ? 'Saving…' : 'Save All & Quit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Environments, Variables & Secrets Manager Modal */}
       <EnvironmentManagerModal
         isOpen={envModalOpen}
         initialTab={envModalTab}
         collection={activeCollection}
-        onUpdateCollection={updatedCol => {
-          if (!activeCollectionEntry) return;
-          setCollections(prev =>
-            prev.map(c =>
-              c.filePath === activeCollectionEntry.filePath
-                ? { ...c, isDirty: true, collection: updatedCol }
-                : c,
-            ),
-          );
+        onSave={async updatedCol => {
+          let targetPath: string;
+          let colToSave = updatedCol;
+          if (!activeCollectionEntry) {
+            // No collection is open: keep the edits in a new untitled collection instead of dropping them.
+            const idx = collections.length + 1;
+            targetPath = `untitled-${idx}.awjc`;
+            colToSave = {
+              ...updatedCol,
+              metadata: { ...updatedCol.metadata, name: `New Collection ${idx}` },
+            };
+            setCollections(prev => [
+              ...prev,
+              { filePath: targetPath, collection: colToSave, isDirty: true },
+            ]);
+            setActiveCollectionPath(targetPath);
+          } else {
+            targetPath = activeCollectionEntry.filePath;
+            setCollections(prev =>
+              prev.map(c =>
+                c.filePath === targetPath ? { ...c, isDirty: true, collection: colToSave } : c,
+              ),
+            );
+          }
+          // Writes to disk; untitled collections prompt for a location and stay dirty if cancelled.
+          await handleSaveCollection(targetPath, colToSave);
         }}
         onClose={() => setEnvModalOpen(false)}
       />
@@ -2290,7 +2469,9 @@ const WorkspaceShell: React.FC = () => {
             collectionFilePath={gitModalCollectionPath}
             collection={gitTargetEntry?.collection ?? null}
             isCollectionDirty={Boolean(gitTargetEntry?.isDirty)}
-            onSaveCollection={fp => handleSaveCollection(fp)}
+            onSaveCollection={async fp => {
+              await handleSaveCollection(fp);
+            }}
             onReloadCollection={fp => handleReloadCollectionFromDisk(fp)}
             onStatusUpdated={(fp, st) =>
               setGitStatusByPath(prev => ({ ...prev, [fp]: st }))

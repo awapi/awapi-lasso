@@ -1005,7 +1005,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                       data-testid={`collection-node-${entry.collection.metadata.id}`}
                       style={{
                         borderRadius: 6,
-                        border: `1px solid ${isSelected ? colors.accent : colors.border}`,
+                        border: `1px solid ${isSelected ? (isLight ? colors.accent : colors.textMuted) : colors.border}`,
                         backgroundColor: colors.bgSecondary,
                         display: 'flex',
                         flexDirection: 'column',

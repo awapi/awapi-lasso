@@ -255,6 +255,7 @@ export const RequestBodyTab: React.FC<RequestBodyTabProps> = ({ body, onChange }
                 onChange={val => onChange({ ...body, content: val ?? '' })}
                 options={{
                   minimap: { enabled: false },
+                  stickyScroll: { enabled: false },
                   fontSize: 12,
                   scrollBeyondLastLine: false,
                   automaticLayout: true,

@@ -129,12 +129,15 @@ import {
 } from './externalTerminal';
 import { getTerminalChoices, resolveShell } from './terminalDetection';
 import { PtyManager } from './ptyManager';
+import { nextZoomLevel, type ZoomAction } from './zoom';
+import { WindowCloseGuard } from './closeGuard';
 import type { PtyCreateOptions } from '../shared/terminal';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
 let isAppReady = false;
+const closeGuard = new WindowCloseGuard();
 
 function osFileArgDeps(): OsFileArgDeps {
   return {
@@ -282,6 +285,16 @@ function createWindow(): void {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
+  closeGuard.reset();
+  mainWindow.on('close', event => {
+    const win = mainWindow;
+    if (!win || win.webContents.isCrashed()) return;
+    if (closeGuard.handleClose() === 'prompt') {
+      event.preventDefault();
+      win.webContents.send('app:closeRequested');
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -333,6 +346,13 @@ function buildCliCommandDeps(): CliCommandDeps {
     },
     unlink: (p: string) => fs.unlinkSync(p),
   };
+}
+
+function applyZoom(action: ZoomAction): void {
+  const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  if (!win || win.isDestroyed()) return;
+  const { webContents } = win;
+  webContents.setZoomLevel(nextZoomLevel(webContents.getZoomLevel(), action));
 }
 
 function rebuildAppMenu(): void {
@@ -544,9 +564,28 @@ function rebuildAppMenu(): void {
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        // Custom items (instead of the zoom roles) so Cmd/Ctrl+= works without Shift, like VS Code.
+        { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => applyZoom('reset') },
+        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => applyZoom('in') },
+        {
+          label: 'Zoom In (Plus)',
+          accelerator: 'CmdOrCtrl+Plus',
+          visible: false,
+          click: () => applyZoom('in'),
+        },
+        {
+          label: 'Zoom In (Numpad)',
+          accelerator: 'CmdOrCtrl+numadd',
+          visible: false,
+          click: () => applyZoom('in'),
+        },
+        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => applyZoom('out') },
+        {
+          label: 'Zoom Out (Numpad)',
+          accelerator: 'CmdOrCtrl+numsub',
+          visible: false,
+          click: () => applyZoom('out'),
+        },
         { type: 'separator' },
         { role: 'togglefullscreen' },
       ],
@@ -1099,6 +1138,19 @@ function registerIpcHandlers(): void {
     );
   });
 
+  ipcMain.on('app:setUnsavedChanges', (_event, hasUnsaved: unknown) => {
+    closeGuard.setHasUnsavedChanges(hasUnsaved === true);
+  });
+
+  ipcMain.handle('app:respondToClose', (_event, proceed: unknown) => {
+    const action = closeGuard.respond(proceed === true);
+    if (action === 'quit') {
+      app.quit();
+    } else if (action === 'close') {
+      mainWindow?.close();
+    }
+  });
+
   ipcMain.on('pty:write', (event, id: number, data: unknown) => {
     ptyManager.write(event.sender.id, id, data);
   });
@@ -1144,5 +1196,6 @@ if (gotSingleInstanceLock) {
     }
   });
 
+  app.on('before-quit', () => closeGuard.markQuitRequested());
   app.on('will-quit', () => ptyManager.killAll());
 }

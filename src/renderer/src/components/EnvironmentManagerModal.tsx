@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Copy, KeyRound, Layers, Plus, Trash2, X } from 'lucide-react';
 import {
   createDefaultEnvironment,
@@ -27,25 +27,44 @@ export interface EnvironmentManagerModalProps {
   isOpen: boolean;
   initialTab?: EnvironmentModalTab;
   collection: AwjcCollection;
-  onUpdateCollection: (collection: AwjcCollection) => void;
+  /** Called with the edited draft when the user clicks Save (or presses Cmd/Ctrl+S). */
+  onSave: (collection: AwjcCollection) => void | Promise<unknown>;
   onClose: () => void;
 }
 
-export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = ({
-  isOpen,
+interface PendingSecretOp {
+  scopeId: string;
+  key: string;
+  value: string;
+  isSecret: boolean;
+}
+
+export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = props => {
+  if (!props.isOpen) return null;
+  // Mounting a fresh dialog on every open resets the draft to the latest collection state.
+  return <EnvironmentManagerDialog {...props} />;
+};
+
+const EnvironmentManagerDialog: React.FC<EnvironmentManagerModalProps> = ({
   initialTab = 'environments',
-  collection,
-  onUpdateCollection,
+  collection: sourceCollection,
+  onSave,
   onClose,
 }) => {
   const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState<EnvironmentModalTab>(initialTab);
+  const [collection, setDraft] = useState<AwjcCollection>(sourceCollection);
+  const [hasEdits, setHasEdits] = useState(false);
+  const [pendingSecretOps, setPendingSecretOps] = useState<PendingSecretOp[]>([]);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      setActiveTab(initialTab);
-    }
-  }, [isOpen, initialTab]);
+  const onUpdateCollection = (next: AwjcCollection) => {
+    setDraft(next);
+    setHasEdits(true);
+    setConfirmDiscard(false);
+  };
 
   const environments = collection.environments ?? [];
   const [selectedEnvId, setSelectedEnvId] = useState<string>(
@@ -57,8 +76,6 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
   const [selectedProfileId, setSelectedProfileId] = useState<string>(
     authProfiles[0]?.id ?? '',
   );
-
-  if (!isOpen) return null;
 
   const selectedEnv =
     environments.find(e => e.id === selectedEnvId) ?? environments[0] ?? null;
@@ -72,15 +89,53 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
     isSecret: boolean,
   ) => {
     if (!entry.key.trim()) return;
-    const coord = {
-      collectionId: collection.metadata.id,
-      scopeId,
-      key: entry.key,
-    };
-    if (isSecret) {
-      void window.electronAPI?.setSecret?.(coord, entry.value ?? '');
-    } else {
-      void window.electronAPI?.deleteSecret?.(coord);
+    setPendingSecretOps(prev => [
+      ...prev,
+      { scopeId, key: entry.key, value: entry.value ?? '', isSecret },
+    ]);
+    setHasEdits(true);
+  };
+
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      for (const op of pendingSecretOps) {
+        const coord = { collectionId: collection.metadata.id, scopeId: op.scopeId, key: op.key };
+        if (op.isSecret) {
+          await window.electronAPI?.setSecret?.(coord, op.value);
+        } else {
+          await window.electronAPI?.deleteSecret?.(coord);
+        }
+      }
+      await onSave(collection);
+    } catch (err) {
+      setIsSaving(false);
+      setSaveError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    onClose();
+  };
+
+  const handleRequestClose = () => {
+    if (hasEdits) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  };
+
+  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const isMod = e.metaKey || e.ctrlKey;
+    if (isMod && e.key.toLowerCase() === 's') {
+      // Keep the app-level Cmd/Ctrl+S handler from saving the stale collection.
+      e.preventDefault();
+      e.stopPropagation();
+      void handleSave();
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      handleRequestClose();
     }
   };
 
@@ -136,7 +191,7 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
       e.id === selectedEnv.id ? { ...e, ...patch } : e,
     );
     const nextActiveEnv =
-      patch.name && collection.activeEnvironment === selectedEnv.name
+      patch.name !== undefined && collection.activeEnvironment === selectedEnv.name
         ? patch.name
         : collection.activeEnvironment;
     onUpdateCollection({
@@ -205,6 +260,7 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
         aria-modal="true"
         aria-label="Environments, Variables & Secrets Manager"
         data-testid="environment-manager-modal"
+        onKeyDown={handleDialogKeyDown}
         style={{
           width: '100%',
           maxWidth: 940,
@@ -240,7 +296,7 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
             type="button"
             data-testid="env-modal-close-btn"
             aria-label="Close modal"
-            onClick={onClose}
+            onClick={handleRequestClose}
             style={{
               border: 'none',
               background: 'transparent',
@@ -485,7 +541,7 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
                       valuePlaceholder="Environment Value"
                       testIdPrefix="env-vars"
                       onSecretToggled={(_, entry, isSecret) =>
-                        persistSecretToggle(`env:${selectedEnv.name}`, entry, isSecret)
+                        persistSecretToggle(`env:${selectedEnv.id}`, entry, isSecret)
                       }
                     />
                   </div>
@@ -652,10 +708,99 @@ export const EnvironmentManagerModal: React.FC<EnvironmentManagerModalProps> = (
             </>
           )}
         </div>
+
+        {/* Footer: Save / Cancel */}
+        <div
+          data-testid="env-modal-footer"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '10px 16px',
+            borderTop: `1px solid ${colors.border}`,
+            backgroundColor: colors.bgSecondary,
+          }}
+        >
+          <div style={{ fontSize: 12, color: saveError ? colors.danger : colors.textSecondary }}>
+            {saveError
+              ? `Save failed: ${saveError}`
+              : confirmDiscard
+                ? 'You have unsaved changes. Discard them?'
+                : hasEdits
+                  ? 'Unsaved changes'
+                  : ''}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {confirmDiscard ? (
+              <>
+                <button
+                  type="button"
+                  data-testid="env-modal-keep-editing-btn"
+                  onClick={() => setConfirmDiscard(false)}
+                  style={secondaryBtnStyle(colors.border, colors.textPrimary)}
+                >
+                  Keep Editing
+                </button>
+                <button
+                  type="button"
+                  data-testid="env-modal-discard-btn"
+                  onClick={onClose}
+                  style={secondaryBtnStyle(colors.danger, colors.danger)}
+                >
+                  Discard Changes
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                data-testid="env-modal-cancel-btn"
+                onClick={handleRequestClose}
+                style={secondaryBtnStyle(colors.border, colors.textPrimary)}
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="env-modal-save-btn"
+              title="Save (Cmd/Ctrl+S)"
+              disabled={isSaving}
+              onClick={() => void handleSave()}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 6,
+                border: 'none',
+                backgroundColor: colors.accent,
+                color: '#ffffff',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: isSaving ? 'wait' : 'pointer',
+                opacity: isSaving ? 0.7 : 1,
+              }}
+            >
+              {isSaving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
+
+function secondaryBtnStyle(borderColor: string, textColor: string): React.CSSProperties {
+  return {
+    padding: '7px 14px',
+    borderRadius: 6,
+    border: `1px solid ${borderColor}`,
+    backgroundColor: 'transparent',
+    color: textColor,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+}
 
 function tabBtnStyle(
   active: boolean,

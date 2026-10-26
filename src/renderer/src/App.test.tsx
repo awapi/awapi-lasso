@@ -12,10 +12,20 @@ vi.mock('./components/TerminalView', () => ({
 
 describe('App shell', () => {
   let osOpenCallback: ((filePath: string) => void) | null = null;
+  let appCloseRequestedCallback: (() => void) | null = null;
 
   beforeEach(() => {
     osOpenCallback = null;
+    appCloseRequestedCallback = null;
     window.electronAPI = {
+      setUnsavedChanges: vi.fn(),
+      onAppCloseRequested: vi.fn((cb: () => void) => {
+        appCloseRequestedCallback = cb;
+        return () => {
+          appCloseRequestedCallback = null;
+        };
+      }),
+      respondToAppClose: vi.fn().mockResolvedValue(undefined),
       openCollectionDialog: vi.fn().mockResolvedValue(['/Users/me/apis/payments.awjc']),
       openCollectionsWithDialog: vi.fn().mockResolvedValue(null),
       openCollectionFromPath: vi.fn(),
@@ -523,6 +533,225 @@ describe('App shell', () => {
         }),
       );
     });
+  });
+
+  it('uses the first environment (as shown in the toolbar) when sending a request and no active environment is set', async () => {
+    window.electronAPI.openCollectionFromPath = vi.fn().mockResolvedValue({
+      filePath: '/Users/me/apis/envs.awjc',
+      format: 'yaml',
+      collection: {
+        awjcVersion: '1.0',
+        metadata: { id: 'col_envs', name: 'Envs API' },
+        environments: [
+          {
+            id: 'env_dev',
+            name: 'dev',
+            variables: [{ key: 'baseUrl', value: 'https://dev.example.com', enabled: true }],
+          },
+        ],
+        items: [
+          {
+            kind: 'request',
+            id: 'req_one',
+            name: 'One',
+            protocol: 'http',
+            method: 'GET',
+            url: '{{baseUrl}}/one',
+            headers: [],
+            queryParams: [],
+            pathParams: [],
+          },
+        ],
+      },
+    });
+    window.electronAPI.loadSession = vi.fn().mockResolvedValue({
+      activeTabId: 'tab_one',
+      activeCollectionPath: '/Users/me/apis/envs.awjc',
+      openCollectionPaths: ['/Users/me/apis/envs.awjc'],
+      tabs: [
+        {
+          id: 'tab_one',
+          title: 'One',
+          collectionPath: '/Users/me/apis/envs.awjc',
+          requestId: 'req_one',
+          isDirty: false,
+        },
+      ],
+    });
+    window.electronAPI.sendHttpRequest = vi.fn().mockResolvedValue(null);
+
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId('url-input')).toHaveValue('{{baseUrl}}/one');
+    });
+    fireEvent.click(screen.getByTestId('send-request-btn'));
+
+    await waitFor(() => {
+      expect(window.electronAPI.sendHttpRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          environmentId: 'dev',
+          interpolationContext: expect.objectContaining({
+            environmentVariables: [
+              { key: 'baseUrl', value: 'https://dev.example.com', enabled: true },
+            ],
+          }),
+        }),
+      );
+    });
+  });
+
+  it('keeps environments added while no collection is open by saving them into an untitled collection', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByTestId('open-env-manager-btn'));
+    fireEvent.click(screen.getByTestId('env-add-btn'));
+    fireEvent.click(screen.getByTestId('env-modal-save-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list')).toHaveTextContent('New Collection 1');
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: 'untitled-1.awjc' }),
+      );
+    });
+    expect(screen.queryByTestId('environment-manager-modal')).not.toBeInTheDocument();
+  });
+
+  it('writes environment edits to disk on Save and uses them for the next request', async () => {
+    window.electronAPI.openCollectionFromPath = vi.fn().mockResolvedValue({
+      filePath: '/Users/me/apis/envs.awjc',
+      collection: {
+        awjcVersion: '1.0',
+        metadata: { id: 'col_envs', name: 'Envs API' },
+        activeEnvironment: 'local',
+        environments: [
+          {
+            id: 'env_local',
+            name: 'local',
+            variables: [{ key: 'baseUrl', value: 'http://localhost:8080', enabled: true }],
+          },
+        ],
+        items: [
+          {
+            kind: 'request',
+            id: 'req_one',
+            name: 'One',
+            protocol: 'http',
+            method: 'GET',
+            url: '{{baseUrl}}/one',
+            headers: [],
+            queryParams: [],
+            pathParams: [],
+          },
+        ],
+      },
+    });
+    window.electronAPI.loadSession = vi.fn().mockResolvedValue({
+      activeTabId: 'tab_one',
+      activeCollectionPath: '/Users/me/apis/envs.awjc',
+      openCollectionPaths: ['/Users/me/apis/envs.awjc'],
+      tabs: [
+        {
+          id: 'tab_one',
+          title: 'One',
+          collectionPath: '/Users/me/apis/envs.awjc',
+          requestId: 'req_one',
+          isDirty: false,
+        },
+      ],
+    });
+    window.electronAPI.saveCollection = vi
+      .fn()
+      .mockResolvedValue({ filePath: '/Users/me/apis/envs.awjc', serialized: '' });
+    window.electronAPI.sendHttpRequest = vi.fn().mockResolvedValue(null);
+
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId('url-input')).toHaveValue('{{baseUrl}}/one');
+    });
+
+    fireEvent.click(screen.getByTestId('open-env-manager-btn'));
+    const nameInput = screen.getByTestId('env-name-input');
+    fireEvent.change(nameInput, { target: { value: '' } });
+    fireEvent.change(nameInput, { target: { value: 'dev' } });
+    fireEvent.change(screen.getByTestId('env-vars-value-0'), {
+      target: { value: 'https://dev.example.com' },
+    });
+    fireEvent.click(screen.getByTestId('env-modal-save-btn'));
+
+    await waitFor(() => {
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledWith({
+        filePath: '/Users/me/apis/envs.awjc',
+        collection: expect.objectContaining({
+          activeEnvironment: 'dev',
+          environments: [
+            expect.objectContaining({
+              id: 'env_local',
+              name: 'dev',
+              variables: [
+                expect.objectContaining({ key: 'baseUrl', value: 'https://dev.example.com' }),
+              ],
+            }),
+          ],
+        }),
+      });
+      expect(screen.queryByTestId('environment-manager-modal')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('send-request-btn'));
+    await waitFor(() => {
+      expect(window.electronAPI.sendHttpRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          environmentId: 'dev',
+          interpolationContext: expect.objectContaining({
+            environmentVariables: [
+              expect.objectContaining({ key: 'baseUrl', value: 'https://dev.example.com' }),
+            ],
+          }),
+        }),
+      );
+    });
+  });
+
+  it('reports unsaved collections to the main process and handles the quit prompt (Cancel, Save All)', async () => {
+    window.electronAPI.saveCollection = vi.fn().mockResolvedValue({ filePath: '/tmp/a.awjc' });
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId('sidebar-new-collection-btn'));
+    await waitFor(() => {
+      expect(window.electronAPI.setUnsavedChanges).toHaveBeenLastCalledWith(true);
+    });
+
+    act(() => appCloseRequestedCallback?.());
+    expect(screen.getByTestId('app-close-unsaved-list')).toHaveTextContent('New Collection 1');
+
+    fireEvent.click(screen.getByTestId('app-close-cancel-btn'));
+    expect(screen.queryByTestId('app-close-unsaved-modal')).not.toBeInTheDocument();
+    expect(window.electronAPI.respondToAppClose).toHaveBeenLastCalledWith(false);
+
+    act(() => appCloseRequestedCallback?.());
+    fireEvent.click(screen.getByTestId('app-close-save-all-btn'));
+    await waitFor(() => {
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: 'untitled-1.awjc' }),
+      );
+      expect(window.electronAPI.respondToAppClose).toHaveBeenLastCalledWith(true);
+      expect(window.electronAPI.setUnsavedChanges).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  it('does not quit when Save All is cancelled in the save dialog, and quits on Don\u2019t Save', async () => {
+    window.electronAPI.saveCollection = vi.fn().mockResolvedValue(null);
+    render(<App />);
+    fireEvent.click(screen.getByTestId('sidebar-new-collection-btn'));
+
+    act(() => appCloseRequestedCallback?.());
+    fireEvent.click(screen.getByTestId('app-close-save-all-btn'));
+    await waitFor(() => {
+      expect(window.electronAPI.respondToAppClose).toHaveBeenLastCalledWith(false);
+    });
+
+    act(() => appCloseRequestedCallback?.());
+    fireEvent.click(screen.getByTestId('app-close-discard-btn'));
+    expect(window.electronAPI.respondToAppClose).toHaveBeenLastCalledWith(true);
   });
 
   it('prompts for confirmation (Save & Close, Don’t Save, Cancel) when closing an unsaved collection or a collection with dirty requests', async () => {
