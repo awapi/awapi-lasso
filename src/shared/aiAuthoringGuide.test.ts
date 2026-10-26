@@ -5,9 +5,11 @@ import { parseCollectionFile } from './awjcSerializer';
 import { isDynamicVariableName } from './interpolation';
 
 const root = resolve(__dirname, '../..');
-const guide = readFileSync(resolve(root, 'docs/ai-authoring-guide.md'), 'utf8');
-const schemaSource = readFileSync(resolve(__dirname, 'collectionSchema.ts'), 'utf8');
-const interpolationSource = readFileSync(resolve(__dirname, 'interpolation.ts'), 'utf8');
+// Git may check files out with CRLF on Windows, so normalize before pattern matching.
+const readNormalized = (path: string): string => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+const guide = readNormalized(resolve(root, 'docs/ai-authoring-guide.md'));
+const schemaSource = readNormalized(resolve(__dirname, 'collectionSchema.ts'));
+const interpolationSource = readNormalized(resolve(__dirname, 'interpolation.ts'));
 
 const yamlBlocks = [...guide.matchAll(/```yaml\n([\s\S]*?)```/g)].map(m => m[1]);
 
