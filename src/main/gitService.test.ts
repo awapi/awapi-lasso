@@ -54,7 +54,8 @@ function createRealGitDeps(): GitServiceDeps {
   };
 }
 
-describe('gitService (per-collection folder Git integration)', () => {
+// Real git subprocesses are slow on Windows CI runners.
+describe('gitService (per-collection folder Git integration)', { timeout: 30_000 }, () => {
   let tempDir: string;
   let deps: GitServiceDeps;
 
@@ -64,7 +65,7 @@ describe('gitService (per-collection folder Git integration)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   it('returns unsaved status for untitled in-memory collections', async () => {
@@ -317,7 +318,7 @@ describe('gitService (per-collection folder Git integration)', () => {
       const pullRes = await pullCollectionGit(colPath, deps);
       expect(pullRes.ok).toBe(true);
     } finally {
-      fs.rmSync(bareRemoteDir, { recursive: true, force: true });
+      fs.rmSync(bareRemoteDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   });
 
