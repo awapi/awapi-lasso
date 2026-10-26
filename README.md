@@ -5,16 +5,65 @@
 
 **AwapiLasso** is a fast, lightweight, local-first HTTP, RESTful, and GraphQL API client built for native cross-platform execution across **macOS, Windows, and Linux**.
 
+![AwapiLasso screenshot](docs/images/awapiLasso_screenshot.jpg)
+
 ---
 
 ## ✨ Key Highlights
 
 - **Cross-Platform Native App:** Runs seamlessly on **Windows** (`.exe` NSIS & `.msi`), **macOS** (`.dmg` for Apple Silicon & Intel), and **Linux** (`.AppImage` & `.deb`).
 - **Universal API Support:** First-class support for **RESTful APIs**, arbitrary **HTTP/HTTPS** requests, and **GraphQL** (including automatic **Schema Discovery**, an interactive **Visual Query Designer** with two-way AST sync, **Schema Explorer**, and split Query/Variables editors).
-- **Single-File YAML Collections (`.awjc` & `.awj`):** Save each collection—including nested folders, requests, auth profiles, and environments—locally in a clean, human-readable `.awjc` YAML file (with full JSON compatibility). Ready for local file sharing today and seamless Git workflows tomorrow.
+- **Single-File YAML Collections (`.awjc` & `.awj`):** Save each collection—including nested folders, requests, auth profiles, and environments—locally in a clean, human-readable `.awjc` YAML file (with full JSON compatibility). Easy to share and Git-friendly.
 - **Click-to-Open OS Integration:** Double-click any `.awjc` or `.awj` collection file in macOS Finder, Windows Explorer (or via the right-click *"Open with AwapiLasso"* context menu), or Linux file manager to open it directly in AwapiLasso.
 - **Environments, `{{Variables}}` & Secrets:** Pass `{{baseUrl}}`, `{{token}}`, `{{userId}}`, and dynamic variables (`{{$uuid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`) into URLs, query/path parameters, headers, auth settings, request bodies, and GraphQL queries. Secret variables (passwords, API keys, client secrets, tokens) are protected in the OS Keychain (`safeStorage`) or a gitignored local sidecar—never leaked in plaintext inside `.awjc` files.
 - **Built-in OAuth 2.0 Token Manager:** Acquire, inspect (with decoded JWT preview), cache, and auto-refresh tokens from OAuth 2.0 endpoints using **Password (`password`)**, **Client Credentials (`client_credentials`)**, **Authorization Code (`authorization_code` + PKCE)**, and **Refresh Token (`refresh_token`)** flows.
+
+---
+
+## 🧰 Features & Capabilities
+
+| Area | What you get |
+|------|--------------|
+| **REST / HTTP Client** | All HTTP methods, bi-directional URL ↔ query-params editor, path variables, headers editor, and JSON/YAML/XML/text, form-urlencoded, multipart, and binary bodies in a Monaco editor. |
+| **GraphQL Query Builder** | Live introspection or offline SDL/JSON schema import, a point-and-click **Visual Query Designer** with two-way sync to the editor, Schema Explorer, and schema-aware autocomplete and validation. |
+| **Collections** | Multi-collection sidebar with search, drag-and-drop, and folders; saved as single-file `.awjc` / `.awj` YAML; external-change watcher; session restore on startup. |
+| **Git Integration** | Per-collection source control: status, diff, log, branch checkout, commit, pull, push, and revert, with secrets kept out of Git via an auto-managed `.gitignore`. |
+| **Integrated Terminal** | Built-in multi-session terminal panel (View menu) with your choice of shell and font, so you can run `git`, `curl`, or scripts next to your requests. |
+| **Environments & Secrets** | Unlimited environments per collection, `{{variable}}` interpolation everywhere, dynamic variables, hover inspection, and OS Keychain-protected secrets. |
+| **Authentication** | Collection → folder → request inheritance; Bearer, Basic, API Key, Digest, AWS Signature v4; built-in OAuth 2.0 (password, client credentials, auth code + PKCE, refresh) with JWT decoding. |
+| **Response Inspector** | Status, timing breakdown, pretty/raw/preview views, JSONPath filter, response diff, pin & copy. |
+| **Captures & Assertions** | Extract values from responses into variables to chain requests, and verify status, time, headers, and JSONPath. |
+| **Collection Runner** | Run a collection or folder sequentially with pass/fail results. |
+| **Import & Code Generation** | Import cURL, OpenAPI, Swagger, and Postman; generate code snippets from any request. |
+| **Request History** | Browse past requests and restore them in one click. |
+
+See the full list in [**Features & Roadmap (`docs/features.md`)**](docs/features.md).
+
+---
+
+## 📥 Installing from GitHub Releases
+
+Download the latest installer for your OS from the [Releases page](https://github.com/awapi/awapi-lasso/releases/latest):
+
+| OS | Installer | Notes |
+|----|-----------|-------|
+| **macOS** | `AwapiLasso-<version>-arm64.dmg` | Apple Silicon. Drag to `/Applications`, then run `xattr -cr /Applications/AwapiLasso.app` once (see below). |
+| **Windows** | `AwapiLasso-<version>-x64-setup.exe` (NSIS) or `AwapiLasso-<version>-x64.msi` | Run the installer. If SmartScreen warns, click **More info → Run anyway** (builds are not code-signed). |
+| **Linux (Debian/Ubuntu)** | `AwapiLasso-<version>-amd64.deb` | `sudo apt install ./AwapiLasso-<version>-amd64.deb` |
+| **Linux (any distro)** | `AwapiLasso-<version>-x86_64.AppImage` | `chmod +x AwapiLasso-<version>-x86_64.AppImage && ./AwapiLasso-<version>-x86_64.AppImage` |
+
+### macOS: "AwapiLasso Not Opened" / "Apple could not verify…"
+
+Release builds are not yet signed/notarized with an Apple Developer ID, so Gatekeeper blocks the first launch. To fix it:
+
+1. Open the `.dmg` and drag `AwapiLasso.app` to `/Applications`.
+2. Remove the quarantine attribute (once):
+   ```bash
+   xattr -cr /Applications/AwapiLasso.app
+   ```
+3. Launch AwapiLasso normally.
+
+Alternatively: click **Done** in the dialog, then go to **System Settings → Privacy & Security**, scroll to the *Security* section, and click **Open Anyway** next to "AwapiLasso was blocked".
 
 ---
 
