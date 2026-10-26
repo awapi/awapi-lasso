@@ -139,6 +139,6 @@ items: []
 
     const parsedPublic = parseCollectionFile(samplePublicApisYaml);
     expect(parsedPublic.collection.metadata.id).toBe('col_public_apis_01');
-    expect(parsedPublic.collection.items).toHaveLength(2);
+    expect(parsedPublic.collection.items).toHaveLength(3);
   });
 });
