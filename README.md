@@ -127,6 +127,7 @@ just release 0.1.1 publish
 
 - 📋 [**Product & Technical Requirements (`docs/requirements.md`)**](docs/requirements.md) — Complete functional & non-functional requirements, architecture, and security model.
 - 📄 [**`.awjc` / `.awj` Collection File Format Spec (`docs/file-format-spec.md`)**](docs/file-format-spec.md) — Annotated YAML schema, OAuth 2.0 & environment configurations, secret handling, and OS file associations.
+- 🤖 [**AI / LLM Authoring Guide (`docs/ai-authoring-guide.md`)**](docs/ai-authoring-guide.md) — Point an AI agent here to generate `.awjc` collections (REST & GraphQL) with correct structure and no plaintext secrets.
 - 🗺️ [**Features & Roadmap (`docs/features.md`)**](docs/features.md) — Full feature breakdown of what AwapiLasso does and its planned roadmap.
 - 🚀 [**Release, Packaging & CI/CD Process (`docs/release-process.md`)**](docs/release-process.md) — GitHub Actions workflows, Windows/macOS/Linux installer configurations, and `justfile` release automation.
 - 🧭 [**Agent Instructions (`AGENTS.md`)**](AGENTS.md) — Project conventions, Electron Main/Preload/Renderer boundaries, and mandatory testing rules.

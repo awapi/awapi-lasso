@@ -48,5 +48,12 @@ AwapiLasso is a fast, lightweight, local-first HTTP, RESTful, and GraphQL API cl
 - Test files must be placed right alongside their implementation file (e.g., `[filename].test.ts` or `[filename].test.tsx` next to `[filename].ts`).
 - Never leave core application logic untested (e.g., `.awjc` YAML serialization, `{{variable}}` resolution, OAuth 2.0 token flows, request building, response assertions).
 
+## 🚨 CRITICAL: Keep the `.awjc` Docs in Sync with the Schema
+- Whenever you change the `.awjc` / `.awj` structure — anything in `src/shared/collectionSchema.ts`, `src/shared/awjcSerializer.ts` (parsing, validation, secret stripping), auth / body / GraphQL / capture / assertion types, built-in `{{$variables}}`, or the secrets sidecar format — you MUST update **both** in the same change:
+  - [`docs/ai-authoring-guide.md`](./docs/ai-authoring-guide.md) — the LLM-facing guide used to generate collections.
+  - [`docs/file-format-spec.md`](./docs/file-format-spec.md) — the full schema reference.
+- Keep every `yaml` example in the authoring guide valid; `src/shared/aiAuthoringGuide.test.ts` parses them with the real parser and checks the documented enums against the schema. Run it after editing the schema or the guide.
+- Follow the [awjc-collection-format](./.agents/skills/awjc-collection-format/SKILL.md) skill for the checklist.
+
 ## 🚨 CRITICAL: Git Operations
 - **Never run `git add`, `git commit`, or `git push` automatically.** Do not stage, commit, or push changes unless the user explicitly asks you to do so in their current request.

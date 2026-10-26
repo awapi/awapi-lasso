@@ -8,6 +8,13 @@ description: "Parse, validate, interpolate {{variables}}, and serialize .awjc / 
 ## Overview
 Every AwapiLasso collection is saved in a single `.awjc` (or `.awj`) file on disk, formatted in clean, deterministic YAML by default (with automatic JSON load/export support). See `docs/file-format-spec.md` for the full schema.
 
+## Keeping Docs in Sync (mandatory when the schema changes)
+Any change to the collection structure must update the docs in the same change:
+1. `docs/ai-authoring-guide.md` — LLM-facing recipes, required fields, enums (auth types, body modes, operators, built-in variables), secrets rules, and pre-save checklist.
+2. `docs/file-format-spec.md` — full schema reference and annotated example.
+3. This skill, if the rules below change.
+4. Run `npx vitest run src/shared/aiAuthoringGuide.test.ts` — it parses every `yaml` block in the authoring guide with `parseCollectionFile` and verifies the documented enum values still exist in `src/shared/collectionSchema.ts` and `src/shared/interpolation.ts`. Extend the test when you add a new enum or request type.
+
 ## Core Rules
 
 ### 1. Single-File YAML Serialization
