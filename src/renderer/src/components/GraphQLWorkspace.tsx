@@ -647,11 +647,14 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
             data-testid="graphql-refresh-schema-btn"
             disabled={isLoadingSchema}
             onClick={() => void handleDiscoverSchema()}
+            title={schemaRecord ? 'Refresh Schema' : 'Discover Schema'}
+            aria-label={schemaRecord ? 'Refresh Schema' : 'Discover Schema'}
+            aria-busy={isLoadingSchema}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 5,
-              padding: '4px 9px',
+              padding: 6,
               borderRadius: 5,
               border: `1px solid ${colors.border}`,
               backgroundColor: colors.bgPrimary,
@@ -662,7 +665,6 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
             }}
           >
             <RefreshCw size={12} />
-            {schemaRecord ? 'Refresh Schema' : 'Discover Schema'}
           </button>
 
           {/* Load Local .graphql / .json File Button */}

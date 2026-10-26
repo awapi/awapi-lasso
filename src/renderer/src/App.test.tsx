@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import App from './App';
 
@@ -617,6 +617,24 @@ describe('App shell', () => {
     expect(screen.getByTestId('save-request-btn')).toHaveAttribute('data-unsaved', 'false');
     expect(screen.getByTestId('collection-list')).toHaveTextContent('Awapi Platform');
     expect(screen.getByTestId('collection-list')).toHaveTextContent('Awapi Home');
+  });
+
+  it('keeps the three menu actions out of the toolbar and opens Terminal from the native menu', async () => {
+    render(<App />);
+    const toolbar = within(screen.getByTestId('top-toolbar'));
+    for (const name of ['About AwapiLasso', 'Check for Updates', 'Toggle terminal']) {
+      expect(toolbar.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    const onToggleTerminal = vi.mocked(window.electronAPI.onMenuToggleTerminal).mock.calls[0][0];
+    await act(async () => onToggleTerminal());
+    await waitFor(() => {
+      expect(window.electronAPI.ptyCreate).toHaveBeenCalledWith({
+        cwd: null,
+        cols: 80,
+        rows: 24,
+      });
+    });
+    expect(screen.getByTestId('terminal-view-1')).toBeInTheDocument();
   });
 
   it('opens integrated and external terminal from collection context menu, and status bar icon opens in home folder when no collection is selected or collection folder when selected', async () => {

@@ -180,6 +180,7 @@ export const electronAPI = {
     ipcRenderer.invoke('clipboard:writeText', text) as Promise<void>,
   readClipboardText: () => ipcRenderer.invoke('clipboard:readText') as Promise<string>,
 
+  /** Checks GitHub Releases and shows the result, without installing updates. */
   checkForUpdates: () => ipcRenderer.invoke('updater:check') as Promise<void>,
 
   /** Per-collection Git integration (using the collection's parent folder as cwd). */

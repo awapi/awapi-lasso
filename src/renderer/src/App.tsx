@@ -1277,8 +1277,6 @@ const WorkspaceShell: React.FC = () => {
         onToggleSplitLayout={() =>
           setSplitLayout(prev => (prev === 'vertical' ? 'horizontal' : 'vertical'))
         }
-        terminalOpen={terminals.isOpen}
-        onToggleTerminal={terminals.isAvailable ? () => toggleTerminalRef.current() : undefined}
       />
 
       {/* Main Split Workspace: Left Sidebar <-> Right Request/Response Area */}
@@ -2441,4 +2439,3 @@ export const App: React.FC = () => {
 };
 
 export default App;
-

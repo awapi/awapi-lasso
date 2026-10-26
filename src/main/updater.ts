@@ -1,4 +1,4 @@
-import { app, dialog, shell, BrowserWindow } from 'electron';
+import { app, dialog, shell, type BrowserWindow, type MessageBoxOptions } from 'electron';
 
 /**
  * Lightweight update notifier for AwapiLasso.
@@ -59,9 +59,28 @@ export async function fetchLatestRelease(
         Accept: 'application/vnd.github+json',
         'User-Agent': `${GITHUB_REPO}-updater`,
       },
+      signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as GithubRelease;
+    if (!res.ok) throw new Error(`GitHub returned HTTP ${res.status}`);
+    const release: unknown = await res.json();
+    if (
+      typeof release !== 'object' || release === null ||
+      !('tag_name' in release) || typeof release.tag_name !== 'string' ||
+      !/^v?\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/i.test(release.tag_name) ||
+      !('html_url' in release) || typeof release.html_url !== 'string' ||
+      !release.html_url.startsWith(`https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/`) ||
+      ('draft' in release && typeof release.draft !== 'boolean') ||
+      ('prerelease' in release && typeof release.prerelease !== 'boolean')
+    ) {
+      throw new Error('GitHub returned invalid release metadata');
+    }
+    return {
+      tag_name: release.tag_name,
+      html_url: release.html_url,
+      name: 'name' in release && typeof release.name === 'string' ? release.name : undefined,
+      draft: 'draft' in release && typeof release.draft === 'boolean' ? release.draft : undefined,
+      prerelease: 'prerelease' in release && typeof release.prerelease === 'boolean' ? release.prerelease : undefined,
+    };
   } catch (err) {
     console.error('Update check failed:', err);
     return null;
@@ -77,13 +96,17 @@ export interface CheckForUpdatesOptions {
 
 export async function checkForUpdates(options: CheckForUpdatesOptions = {}): Promise<void> {
   const { notifyIfUpToDate = false, parentWindow = null, fetchImpl = fetch } = options;
+  const showMessage = (message: MessageBoxOptions) =>
+    parentWindow && !parentWindow.isDestroyed()
+      ? dialog.showMessageBox(parentWindow, message)
+      : dialog.showMessageBox(message);
 
   const release = await fetchLatestRelease(fetchImpl);
   const currentVersion = app.getVersion();
 
   if (!release || release.draft || release.prerelease) {
     if (notifyIfUpToDate) {
-      await dialog.showMessageBox(parentWindow ?? undefined!, {
+      await showMessage({
         type: 'info',
         message: 'Unable to check for updates',
         detail: 'Could not reach GitHub right now. Please try again later.',
@@ -95,7 +118,7 @@ export async function checkForUpdates(options: CheckForUpdatesOptions = {}): Pro
 
   if (!isNewerVersion(release.tag_name, currentVersion)) {
     if (notifyIfUpToDate) {
-      await dialog.showMessageBox(parentWindow ?? undefined!, {
+      await showMessage({
         type: 'info',
         message: `You're up to date`,
         detail: `AwapiLasso ${currentVersion} is the latest version.`,
@@ -105,7 +128,7 @@ export async function checkForUpdates(options: CheckForUpdatesOptions = {}): Pro
     return;
   }
 
-  const result = await dialog.showMessageBox(parentWindow ?? undefined!, {
+  const result = await showMessage({
     type: 'info',
     message: 'A new version of AwapiLasso is available',
     detail: `You're on ${currentVersion}. Latest is ${release.tag_name.replace(/^v/i, '')}.\n\nOpen the download page now?`,
@@ -115,6 +138,16 @@ export async function checkForUpdates(options: CheckForUpdatesOptions = {}): Pro
   });
 
   if (result.response === 0) {
-    await shell.openExternal(release.html_url);
+    try {
+      await shell.openExternal(release.html_url);
+    } catch (error) {
+      console.error('Unable to open update download page:', error);
+      await showMessage({
+        type: 'error',
+        message: 'Unable to open the download page',
+        detail: 'Could not open your browser. Visit https://github.com/awapi/awapi-lasso/releases to download the update.',
+        buttons: ['OK'],
+      });
+    }
   }
 }

@@ -933,10 +933,10 @@ export const GitSourceControlModal: React.FC<GitSourceControlModalProps> = ({
                   disabled={busyAction !== null}
                   onClick={() => void refreshAll(selectedCommitRef)}
                   title="Refresh Git status and diff"
-                  style={actionBtnStyle}
+                  aria-label="Refresh Git status and diff"
+                  style={{ ...actionBtnStyle, padding: 6 }}
                 >
                   <RefreshCw size={12} />
-                  Refresh
                 </button>
               </div>
 

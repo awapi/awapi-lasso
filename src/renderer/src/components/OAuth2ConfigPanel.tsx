@@ -380,11 +380,13 @@ export const OAuth2ConfigPanel: React.FC<OAuth2ConfigPanelProps> = ({
               type="button"
               data-testid="oauth2-refresh-token-btn"
               onClick={() => void handleRefreshToken()}
+              title="Refresh Token"
+              aria-label="Refresh Token"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-                padding: '7px 12px',
+                padding: 7,
                 borderRadius: 6,
                 border: `1px solid ${colors.border}`,
                 backgroundColor: colors.bgSecondary,
@@ -394,7 +396,6 @@ export const OAuth2ConfigPanel: React.FC<OAuth2ConfigPanelProps> = ({
               }}
             >
               <RefreshCw size={12} />
-              Refresh Token
             </button>
 
             <button

@@ -13,12 +13,31 @@ const sampleEnvironments: EnvironmentConfig[] = [
 ];
 
 describe('TopToolbar', () => {
+  it('keeps About, update checks, and Terminal out of the toolbar', () => {
+    render(
+      <ThemeProvider>
+        <TopToolbar
+          environments={[]}
+          onSelectEnvironment={vi.fn()}
+          onOpenEnvironmentManager={vi.fn()}
+          onOpenPreferences={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+    for (const name of ['About AwapiLasso', 'Check for Updates', 'Toggle terminal']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: 'Preferences' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Toggle theme' })).toBeInTheDocument();
+  });
+
   it('renders active collection badge, environment switcher with color indicator, manager button, and import menu', () => {
     const onSelectEnvironment = vi.fn();
     const onOpenEnvironmentManager = vi.fn();
     const onOpenPreferences = vi.fn();
     const onOpenImportOpenApi = vi.fn();
     const onOpenImportCurl = vi.fn();
+    const onOpenCollectionRunner = vi.fn();
 
     render(
       <ThemeProvider>
@@ -32,6 +51,7 @@ describe('TopToolbar', () => {
           onOpenPreferences={onOpenPreferences}
           onOpenImportOpenApi={onOpenImportOpenApi}
           onOpenImportCurl={onOpenImportCurl}
+          onOpenCollectionRunner={onOpenCollectionRunner}
           cliEnabled={true}
         />
       </ThemeProvider>,
@@ -45,6 +65,11 @@ describe('TopToolbar', () => {
 
     const envSelect = screen.getByTestId('environment-switcher-select');
     expect(envSelect).toHaveValue('staging');
+    expect(envSelect).toHaveAttribute('title', 'Active Environment (Cmd/Ctrl+E)');
+    expect(screen.getByTestId('environment-switcher-wrapper')).toHaveAttribute(
+      'title',
+      'Active Environment (Cmd/Ctrl+E)',
+    );
 
     fireEvent.change(envSelect, { target: { value: 'prod' } });
     expect(onSelectEnvironment).toHaveBeenCalledWith('prod');
@@ -52,14 +77,26 @@ describe('TopToolbar', () => {
     fireEvent.click(screen.getByTestId('open-env-manager-btn'));
     expect(onOpenEnvironmentManager).toHaveBeenCalledTimes(1);
 
+    for (const name of ['Environments', 'Runner', 'Import']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.textContent).toBe('');
+      expect(button).toHaveAttribute('title');
+      expect(button.querySelector('svg')).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Runner' }));
+    expect(onOpenCollectionRunner).toHaveBeenCalledTimes(1);
+
     // Import dropdown menu shows OpenAPI / Swagger, cURL, and upcoming Bruno / Postman options
+    expect(screen.getByTestId('toolbar-import-btn')).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    expect(screen.getByTestId('toolbar-import-btn')).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('toolbar-import-menu')).toBeInTheDocument();
     expect(screen.getByTestId('import-bruno-btn')).toBeDisabled();
     expect(screen.getByTestId('import-postman-btn')).toBeDisabled();
 
     fireEvent.click(screen.getByTestId('import-openapi-btn'));
     expect(onOpenImportOpenApi).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('toolbar-import-btn')).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(screen.getByTestId('toolbar-import-btn'));
     fireEvent.click(screen.getByTestId('open-import-curl-btn'));

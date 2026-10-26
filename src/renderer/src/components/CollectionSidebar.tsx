@@ -10,6 +10,7 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  Library,
   MoreVertical,
   Play,
   Plus,
@@ -817,8 +818,13 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
             type="button"
             data-testid="sidebar-mode-collections"
             onClick={() => setMode('collections')}
+            title="Collections"
+            aria-label="Collections"
+            aria-pressed={mode === 'collections'}
             style={{
-              padding: '4px 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: 6,
               borderRadius: 4,
               border: 'none',
               fontSize: 12,
@@ -828,14 +834,17 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
               color: mode === 'collections' ? '#ffffff' : colors.textSecondary,
             }}
           >
-            Collections
+            <Library size={12} />
           </button>
           <button
             type="button"
             data-testid="sidebar-mode-history"
             onClick={() => setMode('history')}
+            title="History"
+            aria-label="History"
+            aria-pressed={mode === 'history'}
             style={{
-              padding: '4px 10px',
+              padding: 6,
               borderRadius: 4,
               border: 'none',
               fontSize: 12,
@@ -849,7 +858,6 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
             }}
           >
             <Clock size={12} />
-            History
           </button>
         </div>
 
@@ -860,11 +868,12 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
             data-testid="sidebar-new-collection-btn"
             onClick={onNewCollection}
             title="New Collection"
+            aria-label="New Collection"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 4,
-              padding: '4px 8px',
+              padding: 6,
               borderRadius: 5,
               border: `1px solid ${colors.border}`,
               backgroundColor: colors.bgSecondary,
@@ -874,18 +883,18 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
             }}
           >
             <Plus size={12} />
-            New
           </button>
           <button
             type="button"
             data-testid="open-collection-btn"
             onClick={onImportCollection}
             title="Open Collection (.awjc / .awj)"
+            aria-label="Open Collection"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 4,
-              padding: '4px 8px',
+              padding: 6,
               borderRadius: 5,
               border: `1px solid ${colors.border}`,
               backgroundColor: colors.bgSecondary,
@@ -895,7 +904,6 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
             }}
           >
             <FolderOpen size={12} />
-            Open
           </button>
         </div>
       </div>

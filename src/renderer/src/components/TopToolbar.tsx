@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ChevronDown,
   FileCode2,
   GitBranch,
   Layers,
   Moon,
   Play,
   Settings,
-  SquareTerminal,
   Sun,
   Terminal,
   Upload,
@@ -41,8 +39,6 @@ export interface TopToolbarProps {
   onToggleCliCommand?: () => void;
   splitLayout?: 'vertical' | 'horizontal';
   onToggleSplitLayout?: () => void;
-  terminalOpen?: boolean;
-  onToggleTerminal?: () => void;
 }
 
 export const TopToolbar: React.FC<TopToolbarProps> = ({
@@ -65,8 +61,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleCliCommand,
   splitLayout = 'vertical',
   onToggleSplitLayout,
-  terminalOpen = false,
-  onToggleTerminal,
 }) => {
   const { isLight, colors, toggleTheme } = useTheme();
   const envSelectRef = useRef<HTMLSelectElement>(null);
@@ -263,6 +257,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         {/* Environment Switcher Dropdown (Cmd/Ctrl+E) */}
         <div
           data-testid="environment-switcher-wrapper"
+          title="Active Environment (Cmd/Ctrl+E)"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -287,6 +282,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <select
             ref={envSelectRef}
             aria-label="Active Environment"
+            title="Active Environment (Cmd/Ctrl+E)"
             data-testid="environment-switcher-select"
             value={activeEnvironmentName ?? activeEnv?.name ?? ''}
             onChange={e => onSelectEnvironment(e.target.value)}
@@ -317,11 +313,11 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           type="button"
           data-testid="open-env-manager-btn"
           onClick={onOpenEnvironmentManager}
+          aria-label="Environments"
           title="Environments, Variables & Auth Profiles Manager"
-          style={buttonStyle}
+          style={{ ...buttonStyle, padding: 6 }}
         >
           <Layers size={13} />
-          Environments
         </button>
 
         {/* Collection Runner Button */}
@@ -330,11 +326,11 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             type="button"
             data-testid="open-runner-btn"
             onClick={onOpenCollectionRunner}
+            aria-label="Runner"
             title="Run Collection or Folder Sequentially"
-            style={buttonStyle}
+            style={{ ...buttonStyle, padding: 6 }}
           >
             <Play size={13} />
-            Runner
           </button>
         )}
 
@@ -346,12 +342,12 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               data-toolbar-import-trigger="true"
               data-testid="toolbar-import-btn"
               onClick={() => setImportMenuOpen(prev => !prev)}
+              aria-label="Import"
+              aria-expanded={importMenuOpen}
               title="Import API Spec or Request"
-              style={buttonStyle}
+              style={{ ...buttonStyle, padding: 6 }}
             >
               <Upload size={13} />
-              Import
-              <ChevronDown size={12} />
             </button>
 
             {importMenuOpen && (
@@ -503,27 +499,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             style={{ ...buttonStyle, padding: 6 }}
           >
             {splitLayout === 'vertical' ? <Columns size={14} /> : <Rows size={14} />}
-          </button>
-        )}
-
-        {/* Integrated Terminal Toggle (Ctrl+`) */}
-        {onToggleTerminal && (
-          <button
-            type="button"
-            data-testid="toolbar-terminal-toggle-btn"
-            aria-label="Toggle terminal"
-            aria-pressed={terminalOpen}
-            onClick={onToggleTerminal}
-            title="Toggle Integrated Terminal (Ctrl+`)"
-            style={{
-              ...buttonStyle,
-              padding: 6,
-              backgroundColor: terminalOpen ? `${colors.accent}22` : buttonStyle.backgroundColor,
-              borderColor: terminalOpen ? colors.accent : colors.border,
-              color: terminalOpen ? colors.accent : colors.textPrimary,
-            }}
-          >
-            <SquareTerminal size={14} />
           </button>
         )}
 

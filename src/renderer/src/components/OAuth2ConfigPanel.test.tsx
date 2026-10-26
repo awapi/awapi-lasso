@@ -47,6 +47,15 @@ describe('OAuth2ConfigPanel', () => {
         },
       }),
       getCachedOAuth2Token: vi.fn().mockResolvedValue(null),
+      refreshOAuth2Token: vi.fn().mockResolvedValue({
+        ok: true,
+        token: {
+          accessToken: 'refreshed-token',
+          tokenType: 'Bearer',
+          acquiredAt: new Date().toISOString(),
+          rawResponse: { access_token: 'refreshed-token' },
+        },
+      }),
       clearOAuth2Token: vi.fn().mockResolvedValue(true),
     } as unknown as Window['electronAPI'];
   });
@@ -73,5 +82,16 @@ describe('OAuth2ConfigPanel', () => {
     expect(screen.getByTestId('oauth2-token-expiry-countdown')).toHaveTextContent(/Expires in/);
     expect(screen.getByTestId('oauth2-jwt-header-json')).toHaveTextContent('"alg": "RS256"');
     expect(screen.getByTestId('oauth2-jwt-claims-json')).toHaveTextContent('"sub": "user_alice"');
+
+    const refreshButton = screen.getByRole('button', { name: 'Refresh Token' });
+    expect(refreshButton.textContent).toBe('');
+    expect(refreshButton).toHaveAttribute('title', 'Refresh Token');
+    expect(refreshButton.querySelector('svg')).toBeInTheDocument();
+    fireEvent.click(refreshButton);
+    await waitFor(() => {
+      expect(window.electronAPI.refreshOAuth2Token).toHaveBeenCalledWith(
+        expect.objectContaining({ config: expect.objectContaining({ grantType: 'client_credentials' }) }),
+      );
+    });
   });
 });

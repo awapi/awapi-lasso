@@ -105,6 +105,8 @@ describe('CollectionSidebar', () => {
 
   it('switches between Collections and History views', () => {
     const onSelectHistoryEntry = vi.fn();
+    const onNewCollection = vi.fn();
+    const onImportCollection = vi.fn();
 
     render(
       <CollectionSidebar
@@ -122,8 +124,8 @@ describe('CollectionSidebar', () => {
         onSelectCollection={vi.fn()}
         onSelectRequest={vi.fn()}
         onSelectHistoryEntry={onSelectHistoryEntry}
-        onNewCollection={vi.fn()}
-        onImportCollection={vi.fn()}
+        onNewCollection={onNewCollection}
+        onImportCollection={onImportCollection}
         onSaveCollection={vi.fn()}
         onSaveCollectionAs={vi.fn()}
         onNewHttpRequest={vi.fn()}
@@ -135,13 +137,31 @@ describe('CollectionSidebar', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('sidebar-mode-history'));
+    for (const name of ['Collections', 'History', 'New Collection', 'Open Collection']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.textContent).toBe('');
+      expect(button).toHaveAttribute('title');
+      expect(button.querySelector('svg')).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'New Collection' }));
+    expect(onNewCollection).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Open Collection' }));
+    expect(onImportCollection).toHaveBeenCalledTimes(1);
+
+    expect(screen.getByTestId('sidebar-mode-collections')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('sidebar-mode-history')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    expect(screen.getByTestId('sidebar-mode-history')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('sidebar-mode-collections')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('sidebar-history-view')).toBeInTheDocument();
     const histItem = screen.getByTestId('history-entry-hist_1');
     expect(histItem).toHaveTextContent('https://api.example.com/v1/charge');
 
     fireEvent.click(histItem);
     expect(onSelectHistoryEntry).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collections' }));
+    expect(screen.getByTestId('collection-list')).toBeInTheDocument();
   });
 
   it('invokes context menu actions for collection and request items (New, Duplicate, Rename, Delete, Save, Save As, Close, Generate Code)', () => {

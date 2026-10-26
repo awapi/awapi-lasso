@@ -27,6 +27,7 @@ import { spawn } from 'child_process';
 import type { AwjcCollection } from '../shared/collectionSchema';
 import { importOpenApiSpec } from '../shared/openapiImporter';
 import { checkForUpdates } from './updater';
+import { showAboutDialog } from './about';
 import {
   COLLECTION_OPENED_FROM_OS_CHANNEL,
   isCollectionFilePath,
@@ -364,7 +365,10 @@ function rebuildAppMenu(): void {
           {
             label: app.name,
             submenu: [
-              { role: 'about' as const },
+              {
+                label: 'About AwapiLasso',
+                click: () => showAboutDialog(mainWindow),
+              },
               {
                 label: 'Check for Updates…',
                 click: () => {
@@ -556,16 +560,15 @@ function rebuildAppMenu(): void {
             void shell.openExternal('https://github.com/awapi/awapi-lasso');
           },
         },
-        ...(!isMac
-          ? [
-              {
-                label: 'Check for Updates…',
-                click: () => {
-                  void checkForUpdates({ notifyIfUpToDate: true, parentWindow: mainWindow });
-                },
-              },
-            ]
-          : []),
+        {
+          label: 'Check for Updates…',
+          click: () => checkForUpdates({ notifyIfUpToDate: true, parentWindow: mainWindow }),
+        },
+        { type: 'separator' },
+        {
+          label: 'About',
+          click: () => showAboutDialog(mainWindow),
+        },
       ],
     },
   ];
@@ -1012,8 +1015,11 @@ function registerIpcHandlers(): void {
     clipboard.writeText(text);
   });
   ipcMain.handle('clipboard:readText', () => clipboard.readText());
-  ipcMain.handle('updater:check', () =>
-    checkForUpdates({ notifyIfUpToDate: true, parentWindow: mainWindow }),
+  ipcMain.handle('updater:check', event =>
+    checkForUpdates({
+      notifyIfUpToDate: true,
+      parentWindow: BrowserWindow.fromWebContents(event.sender),
+    }),
   );
 
   ipcMain.handle('git:getStatus', (_event, collectionFilePath: string) =>

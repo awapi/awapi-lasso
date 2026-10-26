@@ -156,6 +156,16 @@ describe('GitSourceControlModal', () => {
     expect(screen.getByTestId('git-diff-modified')).toHaveTextContent('Orders v2');
     expect(screen.getByTestId('git-safety-badge-safe')).toBeInTheDocument();
 
+    const refreshButton = screen.getByRole('button', { name: 'Refresh Git status and diff' });
+    expect(refreshButton.textContent).toBe('');
+    expect(refreshButton).toHaveAttribute('title', 'Refresh Git status and diff');
+    expect(refreshButton.querySelector('svg')).toBeInTheDocument();
+    vi.mocked(window.electronAPI.getGitStatus).mockClear();
+    fireEvent.click(refreshButton);
+    await waitFor(() => {
+      expect(window.electronAPI.getGitStatus).toHaveBeenCalledWith('/repo/orders/orders.awjc');
+    });
+
     // Clicking historical commit compares against that commit hash
     fireEvent.click(screen.getByTestId('git-commit-item-abcdef1'));
     await waitFor(() => {

@@ -105,6 +105,35 @@ describe('GraphQLWorkspace component', () => {
     } as unknown as Window['electronAPI'];
   });
 
+  it('uses an icon-only schema control with discover/refresh tooltips and loading state', async () => {
+    render(<ControlledHarness initial={{
+      query: '',
+      variables: '{}',
+      schemaSource: { mode: 'introspect', autoIntrospectOnOpen: false },
+    }} />);
+
+    const button = screen.getByRole('button', { name: 'Discover Schema' });
+    expect(button.textContent).toBe('');
+    expect(button).toHaveAttribute('title', 'Discover Schema');
+    expect(button.querySelector('svg')).toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-busy', 'true');
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleName('Refresh Schema');
+      expect(button).toHaveAttribute('title', 'Refresh Schema');
+      expect(button).toBeEnabled();
+      expect(button).toHaveAttribute('aria-busy', 'false');
+    });
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(window.electronAPI.introspectGraphQLSchema).toHaveBeenCalledTimes(2);
+      expect(button).toBeEnabled();
+    });
+  });
+
   it('auto-introspects schema on mount, displays schema status badge, and performs two-way AST synchronization between Query Designer and Query Editor', async () => {
     render(<ControlledHarness />);
 

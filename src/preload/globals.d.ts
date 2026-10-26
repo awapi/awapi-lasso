@@ -139,6 +139,7 @@ declare global {
       copyToClipboard: (text: string) => Promise<void>;
       readClipboardText: () => Promise<string>;
 
+      /** Checks GitHub Releases and shows the result, without installing updates. */
       checkForUpdates: () => Promise<void>;
 
       /** Per-collection Git integration (using the collection's parent folder as cwd). */

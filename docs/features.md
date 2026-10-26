@@ -12,6 +12,8 @@ AwapiLasso is designed around a clear philosophy: **deliver a fast, local-first,
 - **Multi-Collection Sidebar:** Keep multiple `.awjc` collections open at once, search/filter requests across collections, drag-and-drop to reorder folders/requests, and duplicate or move requests easily.
 - **External File Change Watcher:** Automatically detects when an open `.awjc` file is modified externally (e.g., after `git pull` or an edit in `AwapiEditor`) and reloads clean collections or prompts when unsaved changes exist.
 - **Session Persistence:** Automatically restores open collections, active request tabs, unsaved scratch requests, and selected environments on startup.
+- **Compact Icon Controls:** Collections/History, New/Open Collection, the top-bar Environments/Runner/Import actions, and refresh controls use icons with hover tooltips and accessible names. Import menu choices keep their text labels.
+- **About & Check for Updates:** The Help menu on all platforms (also the application menu on macOS) shows app/runtime versions and project/maintainer links, or manually checks GitHub Releases. Update checks report when you are up to date or a check fails, and offer to open the download page for newer releases; they do not automatically install updates. About, update checks, and Terminal do not add top-toolbar buttons; terminal actions remain available in the View menu.
 
 ### 2. HTTP, RESTful & GraphQL Request Builder
 - **Full HTTP Method Support:** `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `TRACE`, `CONNECT`, and custom HTTP verbs.

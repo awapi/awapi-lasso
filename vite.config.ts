@@ -54,6 +54,7 @@ export default defineConfig({
     include: [
       '**/*.{test,spec}.?(c|m)[jt]s?(x)',
       '../main/**/*.{test,spec}.?(c|m)[jt]s?(x)',
+      '../preload/**/*.{test,spec}.?(c|m)[jt]s?(x)',
       '../shared/**/*.{test,spec}.?(c|m)[jt]s?(x)',
       '../../sample-api/**/*.{test,spec}.?(c|m)[jt]s?(x)',
     ],
