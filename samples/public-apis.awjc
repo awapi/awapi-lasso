@@ -195,28 +195,3 @@ items:
             path: $.data.country.code
             operator: equals
             expected: CA
-  - kind: folder
-    id: fld_mvojsw1f_13_8ddh7c
-    name: random
-    auth:
-      type: inherit
-    headers: []
-    items:
-      - kind: request
-        id: req_mvoivbm8_36_d19fpk
-        name: Awpai.com-Get
-        protocol: http
-        method: GET
-        url: https://awapi.com/
-        queryParams: []
-        pathParams: []
-        headers: []
-        auth:
-          type: inherit
-        body:
-          mode: json
-          content: ""
-          urlEncoded: []
-          formData: []
-        captures: []
-        assertions: []
