@@ -335,6 +335,18 @@ describe('App shell', () => {
     expect(scrollContainer).toHaveStyle({ overflowY: 'auto' });
   });
 
+  it('lets the response pane be collapsed and expanded so the request side can use the full width', () => {
+    render(<App />);
+    const responsePane = screen.getByTestId('request-response-split-second');
+    expect(responsePane).toHaveAttribute('data-collapsed', 'false');
+
+    fireEvent.click(screen.getByTestId('request-response-split-collapse-btn'));
+    expect(responsePane).toHaveAttribute('data-collapsed', 'true');
+
+    fireEvent.click(screen.getByTestId('request-response-split-collapse-btn'));
+    expect(responsePane).toHaveAttribute('data-collapsed', 'false');
+  });
+
   it('prompts to Save, Don’t Save, or Cancel when closing a dirty request tab', async () => {
     render(<App />);
 

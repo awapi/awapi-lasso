@@ -188,4 +188,49 @@ describe('EnvironmentManagerModal', () => {
     );
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('can be moved by dragging the header and resized from its edges and corners', () => {
+    render(
+      <EnvironmentManagerModal
+        isOpen={true}
+        collection={makeCollection()}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    const dialog = screen.getByTestId('environment-manager-modal');
+    const startLeft = parseInt(dialog.style.left, 10);
+    const startTop = parseInt(dialog.style.top, 10);
+    const startWidth = parseInt(dialog.style.width, 10);
+    const startHeight = parseInt(dialog.style.height, 10);
+
+    fireEvent.mouseDown(screen.getByTestId('env-modal-header'), {
+      button: 0,
+      clientX: 400,
+      clientY: 50,
+    });
+    fireEvent.mouseMove(window, { clientX: 460, clientY: 90 });
+    fireEvent.mouseUp(window);
+    expect(parseInt(dialog.style.left, 10)).toBe(startLeft + 60);
+    expect(parseInt(dialog.style.top, 10)).toBe(startTop + 40);
+
+    fireEvent.mouseDown(screen.getByTestId('env-modal-resize-se'), {
+      button: 0,
+      clientX: 800,
+      clientY: 600,
+    });
+    fireEvent.mouseMove(window, { clientX: 850, clientY: 640 });
+    fireEvent.mouseUp(window);
+    expect(parseInt(dialog.style.width, 10)).toBe(startWidth + 50);
+    expect(parseInt(dialog.style.height, 10)).toBe(startHeight + 40);
+
+    // Header buttons must not start a drag
+    fireEvent.mouseDown(screen.getByTestId('env-modal-close-btn'), {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.mouseMove(window, { clientX: 200, clientY: 200 });
+    expect(parseInt(dialog.style.left, 10)).toBe(startLeft + 60);
+  });
 });

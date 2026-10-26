@@ -1641,11 +1641,15 @@ const WorkspaceShell: React.FC = () => {
                   </div>
                 ) : (
                   <ResizableSplitPane
+                    key={splitLayout}
                     testId="request-response-split"
                     direction={splitLayout}
-                    initialSize={360}
-                    minSize={200}
-                    maxSize={720}
+                    primaryPane="second"
+                    initialSize={splitLayout === 'horizontal' ? 440 : 360}
+                    minSize={120}
+                    maxSize={3000}
+                    storageKey={`request-response-${splitLayout}`}
+                    collapsible
                     firstPane={
                       <div
                         style={{

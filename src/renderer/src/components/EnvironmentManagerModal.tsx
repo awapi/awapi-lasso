@@ -11,6 +11,24 @@ import {
 import { KeyValueTable } from './KeyValueTable';
 import { RequestAuthTab } from './RequestAuthTab';
 import { useTheme } from '../context/ThemeContext';
+import {
+  useDraggableResizableModal,
+  type ModalResizeDirection,
+} from '../hooks/useDraggableResizableModal';
+
+const MIN_MODAL_WIDTH = 640;
+const MIN_MODAL_HEIGHT = 420;
+
+const RESIZE_HANDLES: Array<{ dir: ModalResizeDirection; style: React.CSSProperties }> = [
+  { dir: 'n', style: { top: 0, left: 10, right: 10, height: 6, cursor: 'ns-resize' } },
+  { dir: 's', style: { bottom: 0, left: 10, right: 10, height: 6, cursor: 'ns-resize' } },
+  { dir: 'w', style: { left: 0, top: 10, bottom: 10, width: 6, cursor: 'ew-resize' } },
+  { dir: 'e', style: { right: 0, top: 10, bottom: 10, width: 6, cursor: 'ew-resize' } },
+  { dir: 'nw', style: { top: 0, left: 0, width: 12, height: 12, cursor: 'nwse-resize' } },
+  { dir: 'ne', style: { top: 0, right: 0, width: 12, height: 12, cursor: 'nesw-resize' } },
+  { dir: 'sw', style: { bottom: 0, left: 0, width: 12, height: 12, cursor: 'nesw-resize' } },
+  { dir: 'se', style: { bottom: 0, right: 0, width: 16, height: 16, cursor: 'nwse-resize' } },
+];
 
 const ENV_COLOR_PALETTE = [
   '#22c55e', // green (local)
@@ -52,6 +70,13 @@ const EnvironmentManagerDialog: React.FC<EnvironmentManagerModalProps> = ({
   onClose,
 }) => {
   const { colors } = useTheme();
+  const { rect, isInteracting, handleHeaderMouseDown, handleResizeMouseDown } =
+    useDraggableResizableModal({
+      initialWidth: 940,
+      initialHeight: Math.round((window.innerHeight || 800) * 0.8),
+      minWidth: MIN_MODAL_WIDTH,
+      minHeight: MIN_MODAL_HEIGHT,
+    });
   const [activeTab, setActiveTab] = useState<EnvironmentModalTab>(initialTab);
   const [collection, setDraft] = useState<AwjcCollection>(sourceCollection);
   const [hasEdits, setHasEdits] = useState(false);
@@ -249,10 +274,6 @@ const EnvironmentManagerDialog: React.FC<EnvironmentManagerModalProps> = ({
         inset: 0,
         zIndex: 100,
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
       }}
     >
       <div
@@ -262,9 +283,11 @@ const EnvironmentManagerDialog: React.FC<EnvironmentManagerModalProps> = ({
         data-testid="environment-manager-modal"
         onKeyDown={handleDialogKeyDown}
         style={{
-          width: '100%',
-          maxWidth: 940,
-          height: '80vh',
+          position: 'fixed',
+          left: rect.x,
+          top: rect.y,
+          width: rect.width,
+          height: rect.height,
           backgroundColor: colors.bgPrimary,
           border: `1px solid ${colors.border}`,
           borderRadius: 10,
@@ -272,10 +295,23 @@ const EnvironmentManagerDialog: React.FC<EnvironmentManagerModalProps> = ({
           flexDirection: 'column',
           overflow: 'hidden',
           boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+          userSelect: isInteracting ? 'none' : 'auto',
         }}
       >
-        {/* Modal Header */}
+        {RESIZE_HANDLES.map(h => (
+          <div
+            key={h.dir}
+            data-testid={`env-modal-resize-${h.dir}`}
+            onMouseDown={e => handleResizeMouseDown(h.dir, e)}
+            style={{ position: 'absolute', zIndex: 40, ...h.style }}
+          />
+        ))}
+
+        {/* Modal Header (drag to move) */}
         <div
+          data-testid="env-modal-header"
+          onMouseDown={handleHeaderMouseDown}
+          title="Drag to move"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -283,6 +319,8 @@ const EnvironmentManagerDialog: React.FC<EnvironmentManagerModalProps> = ({
             padding: '12px 16px',
             borderBottom: `1px solid ${colors.border}`,
             backgroundColor: colors.bgSecondary,
+            cursor: 'move',
+            userSelect: 'none',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
