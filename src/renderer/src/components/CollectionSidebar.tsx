@@ -26,6 +26,7 @@ import type {
   FolderItem,
   RequestItem,
 } from '../../../shared/collectionSchema';
+import { canDropTreeItem, type TreeDropTarget } from '../../../shared/collectionTreeMove';
 import type { GitCollectionStatus } from '../../../shared/gitTypes';
 import { getGitFileStateBadge } from './GitSourceControlModal';
 import { useTheme } from '../context/ThemeContext';
@@ -74,6 +75,13 @@ export interface CollectionSidebarProps {
   onRenameCollection?: (collectionPath: string, newName: string) => void;
   onRenameItem: (collectionPath: string, itemId: string, newName: string) => void;
   onDeleteItem: (collectionPath: string, itemId: string) => void;
+  /** Called when a folder or request is dragged onto a new position, possibly in another collection. */
+  onMoveItem?: (
+    sourceCollectionPath: string,
+    itemId: string,
+    targetCollectionPath: string,
+    target: TreeDropTarget,
+  ) => void;
   onGenerateCodeForRequest?: (collectionPath: string, request: RequestItem) => void;
   gitStatusByCollectionPath?: Record<string, GitCollectionStatus>;
   onOpenGitSourceControl?: (collectionPath: string) => void;
@@ -162,6 +170,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
   onRenameCollection,
   onRenameItem,
   onDeleteItem,
+  onMoveItem,
   onGenerateCodeForRequest,
   gitStatusByCollectionPath = {},
   onOpenGitSourceControl,
@@ -175,6 +184,10 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
   const [renameDraft, setRenameDraft] = useState<string>('');
   const [collectionHeights, setCollectionHeights] = useState<Record<string, number>>({});
   const [draggingSplitterIndex, setDraggingSplitterIndex] = useState<number | null>(null);
+  const dragItemRef = useRef<{ collectionPath: string; itemId: string } | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<
+    ({ collectionPath: string } & TreeDropTarget) | null
+  >(null);
 
   const collectionListRef = useRef<HTMLUListElement | null>(null);
   const collectionNodeRefs = useRef<Record<string, HTMLLIElement | null>>({});
@@ -361,6 +374,122 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
     setRenameDraft('');
   };
 
+  const canDropOn = (targetCollectionPath: string, target: TreeDropTarget): boolean => {
+    const drag = dragItemRef.current;
+    if (!drag || target.targetId === drag.itemId) return false;
+    const source = collections.find(c => c.filePath === drag.collectionPath);
+    const dest = collections.find(c => c.filePath === targetCollectionPath);
+    if (!source || !dest) return false;
+    return canDropTreeItem(source.collection.items, dest.collection.items, drag.itemId, target);
+  };
+
+  const endItemDrag = () => {
+    dragItemRef.current = null;
+    setDropIndicator(null);
+  };
+
+  const handleDragOverTarget = (
+    e: React.DragEvent<HTMLElement>,
+    collectionPath: string,
+    target: TreeDropTarget,
+  ) => {
+    if (!dragItemRef.current) return;
+    e.stopPropagation();
+    if (!canDropOn(collectionPath, target)) {
+      setDropIndicator(prev => (prev ? null : prev));
+      return;
+    }
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    setDropIndicator(prev =>
+      prev &&
+      prev.collectionPath === collectionPath &&
+      prev.targetId === target.targetId &&
+      prev.position === target.position
+        ? prev
+        : { collectionPath, ...target },
+    );
+  };
+
+  const handleDropOnTarget = (
+    e: React.DragEvent<HTMLElement>,
+    collectionPath: string,
+    target: TreeDropTarget,
+  ) => {
+    const drag = dragItemRef.current;
+    if (!drag) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (canDropOn(collectionPath, target)) {
+      onMoveItem?.(drag.collectionPath, drag.itemId, collectionPath, target);
+    }
+    endItemDrag();
+  };
+
+  /** Requests split into before/after halves; folders also accept drops into their middle. */
+  const getItemDropTarget = (
+    e: React.DragEvent<HTMLElement>,
+    item: CollectionTreeItem,
+  ): TreeDropTarget => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rawRatio = rect.height > 0 ? (e.clientY - rect.top) / rect.height : 0.5;
+    const ratio = Number.isFinite(rawRatio) ? rawRatio : 0.5;
+    if (item.kind === 'folder') {
+      if (ratio < 0.25) return { targetId: item.id, position: 'before' };
+      if (ratio > 0.75) return { targetId: item.id, position: 'after' };
+      return { targetId: item.id, position: 'inside' };
+    }
+    return { targetId: item.id, position: ratio < 0.5 ? 'before' : 'after' };
+  };
+
+  const itemDragProps = (
+    collectionPath: string,
+    item: CollectionTreeItem,
+    isRenaming: boolean,
+  ): React.HTMLAttributes<HTMLDivElement> & { draggable?: boolean } =>
+    onMoveItem
+      ? {
+          draggable: !isRenaming,
+          onDragStart: e => {
+            e.stopPropagation();
+            dragItemRef.current = { collectionPath, itemId: item.id };
+            setOpenMenuId(null);
+            if (e.dataTransfer) {
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', item.name);
+            }
+          },
+          onDragOver: e => handleDragOverTarget(e, collectionPath, getItemDropTarget(e, item)),
+          onDrop: e => handleDropOnTarget(e, collectionPath, getItemDropTarget(e, item)),
+          onDragEnd: endItemDrag,
+        }
+      : {};
+
+  const rootDropProps = (collectionPath: string): React.HTMLAttributes<HTMLElement> =>
+    onMoveItem
+      ? {
+          onDragOver: e => handleDragOverTarget(e, collectionPath, { position: 'inside' }),
+          onDrop: e => handleDropOnTarget(e, collectionPath, { position: 'inside' }),
+        }
+      : {};
+
+  const itemDropIndicatorStyle = (collectionPath: string, itemId: string): React.CSSProperties => {
+    if (dropIndicator?.collectionPath !== collectionPath || dropIndicator.targetId !== itemId) {
+      return {};
+    }
+    switch (dropIndicator.position) {
+      case 'before':
+        return { boxShadow: `inset 0 2px 0 0 ${colors.accent}` };
+      case 'after':
+        return { boxShadow: `inset 0 -2px 0 0 ${colors.accent}` };
+      default:
+        return {
+          backgroundColor: `${colors.accent}26`,
+          boxShadow: `inset 0 0 0 1px ${colors.accent}`,
+        };
+    }
+  };
+
   const filteredHistory = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return historyEntries;
@@ -387,6 +516,8 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
       return (
         <div key={folder.id} data-testid={`tree-folder-${folder.id}`}>
           <div
+            data-testid={`tree-folder-row-${folder.id}`}
+            {...itemDragProps(collectionPath, folder, isRenaming)}
             onContextMenu={e => {
               e.preventDefault();
               setOpenMenuId(isMenuOpen ? null : folder.id);
@@ -402,6 +533,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
               fontSize: 12,
               color: colors.textPrimary,
               position: 'relative',
+              ...itemDropIndicatorStyle(collectionPath, folder.id),
             }}
           >
             <div
@@ -617,6 +749,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
       <div
         key={req.id}
         data-testid={`tree-request-${req.id}`}
+        {...itemDragProps(collectionPath, req, isRenaming)}
         onClick={() => onSelectRequest(collectionPath, req)}
         onContextMenu={e => {
           e.preventDefault();
@@ -634,6 +767,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
           backgroundColor: isActive ? (isLight ? '#e2e8f0' : '#1e293b') : 'transparent',
           color: colors.textPrimary,
           position: 'relative',
+          ...itemDropIndicatorStyle(collectionPath, req.id),
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
@@ -995,6 +1129,9 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                 const isNextCollapsed = nextColId ? Boolean(collapsedIds[nextColId]) : false;
                 const isSplitterDisabled = isCollapsed || isNextCollapsed;
                 const isDraggingThisSplitter = draggingSplitterIndex === index;
+                const isRootDropTarget =
+                  dropIndicator?.collectionPath === entry.filePath &&
+                  dropIndicator.targetId === undefined;
 
                 return (
                   <React.Fragment key={entry.filePath}>
@@ -1005,7 +1142,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                       data-testid={`collection-node-${entry.collection.metadata.id}`}
                       style={{
                         borderRadius: 6,
-                        border: `1px solid ${isSelected ? (isLight ? colors.accent : colors.textMuted) : colors.border}`,
+                        border: `1px solid ${isRootDropTarget ? colors.accent : isSelected ? (isLight ? colors.accent : colors.textMuted) : colors.border}`,
                         backgroundColor: colors.bgSecondary,
                         display: 'flex',
                         flexDirection: 'column',
@@ -1028,6 +1165,8 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                     >
                       {/* Collection Header */}
                       <div
+                        data-testid={`collection-header-${entry.collection.metadata.id}`}
+                        {...rootDropProps(entry.filePath)}
                         onClick={() => onSelectCollection(entry.filePath)}
                         onContextMenu={e => {
                           e.preventDefault();
@@ -1404,6 +1543,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                     {!isCollapsed && (
                       <div
                         data-testid={`collection-tree-${entry.collection.metadata.id}`}
+                        {...rootDropProps(entry.filePath)}
                         style={{
                           padding: '2px 4px 6px 4px',
                           flex: 1,

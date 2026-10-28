@@ -113,4 +113,95 @@ describe('RequestTabBar', () => {
     fireEvent.drop(tab2);
     expect(onReorderTabs).toHaveBeenCalledWith(0, 1);
   });
+
+  const renderWithTabActions = () => {
+    const onRenameTab = vi.fn();
+    const onDuplicateTab = vi.fn();
+    const onCloseTab = vi.fn();
+    render(
+      <RequestTabBar
+        tabs={sampleTabs}
+        activeTabId="tab_1"
+        onSelectTab={vi.fn()}
+        onNewTab={vi.fn()}
+        onCloseTab={onCloseTab}
+        onCloseOtherTabs={vi.fn()}
+        onCloseAllTabs={vi.fn()}
+        onReopenClosedTab={vi.fn()}
+        onReorderTabs={vi.fn()}
+        onRenameTab={onRenameTab}
+        onDuplicateTab={onDuplicateTab}
+      />,
+    );
+    return { onRenameTab, onDuplicateTab, onCloseTab };
+  };
+
+  it('renames a tab inline from the context menu', () => {
+    const { onRenameTab, onCloseTab } = renderWithTabActions();
+
+    fireEvent.contextMenu(screen.getByTestId('request-tab-tab_2'));
+    fireEvent.click(screen.getByTestId('tab-ctx-rename-tab_2'));
+    const input = screen.getByTestId('tab-rename-input-tab_2');
+    expect(input).toHaveValue('Fetch Orders');
+    expect(screen.getByTestId('request-tab-tab_2')).toHaveAttribute('draggable', 'false');
+
+    // Typing in the field must not trigger tab shortcuts.
+    fireEvent.keyDown(input, { key: 'w', ctrlKey: true });
+    expect(onCloseTab).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '  All Orders  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onRenameTab).toHaveBeenCalledWith('tab_2', 'All Orders');
+    expect(screen.queryByTestId('tab-rename-input-tab_2')).not.toBeInTheDocument();
+  });
+
+  it('ignores empty, unchanged, or cancelled renames', () => {
+    const { onRenameTab } = renderWithTabActions();
+    const startRename = () => {
+      fireEvent.contextMenu(screen.getByTestId('request-tab-tab_1'));
+      fireEvent.click(screen.getByTestId('tab-ctx-rename-tab_1'));
+      return screen.getByTestId('tab-rename-input-tab_1');
+    };
+
+    let input = startRename();
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.blur(input);
+
+    input = startRename();
+    fireEvent.blur(input);
+
+    input = startRename();
+    fireEvent.change(input, { target: { value: 'Something else' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(onRenameTab).not.toHaveBeenCalled();
+    expect(screen.getByTestId('tab-title-tab_1')).toHaveTextContent('Get Users');
+  });
+
+  it('duplicates a tab from the context menu', () => {
+    const { onDuplicateTab } = renderWithTabActions();
+    fireEvent.contextMenu(screen.getByTestId('request-tab-tab_1'));
+    fireEvent.click(screen.getByTestId('tab-ctx-duplicate-tab_1'));
+    expect(onDuplicateTab).toHaveBeenCalledWith('tab_1');
+    expect(screen.queryByTestId('tab-context-menu-tab_1')).not.toBeInTheDocument();
+  });
+
+  it('hides Rename and Duplicate when no handlers are given', () => {
+    render(
+      <RequestTabBar
+        tabs={sampleTabs}
+        activeTabId="tab_1"
+        onSelectTab={vi.fn()}
+        onNewTab={vi.fn()}
+        onCloseTab={vi.fn()}
+        onCloseOtherTabs={vi.fn()}
+        onCloseAllTabs={vi.fn()}
+        onReopenClosedTab={vi.fn()}
+        onReorderTabs={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('request-tab-tab_1'));
+    expect(screen.queryByTestId('tab-ctx-rename-tab_1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tab-ctx-duplicate-tab_1')).not.toBeInTheDocument();
+  });
 });

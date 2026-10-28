@@ -29,6 +29,8 @@ pnpm run sample-api
 
 Then open [`samples/orders-and-inventory.awjc`](../samples/orders-and-inventory.awjc) in **AwapiLasso** with the **`local`** environment selected.
 
+To try the Postman importer against the same server, use **File → Import → Import from Postman…** and select all three files in [`samples/postman/`](../samples/postman/) (the collection plus the `local` and `production` environment exports).
+
 ---
 
 ## Available Endpoints

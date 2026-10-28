@@ -63,6 +63,16 @@ declare global {
         sourcePath: string;
         collection: AwjcCollection;
       } | null>;
+      /** Opens a native dialog to pick `bruno.json` in a Bruno collection folder (or a Bruno JSON export) and imports it as a collection. */
+      importBrunoWithDialog: () => Promise<{
+        sourcePath: string;
+        collection: AwjcCollection;
+      } | null>;
+      /** Opens a native dialog to pick a Postman collection export (plus optional environment / globals exports) and imports it as a collection. */
+      importPostmanWithDialog: () => Promise<{
+        sourcePath: string;
+        collection: AwjcCollection;
+      } | null>;
       /** Saves a collection to `filePath` (stripping `secret: true` values into OS Keychain). */
       saveCollection: (options: {
         filePath: string;
@@ -207,6 +217,8 @@ declare global {
       onMenuOpenSettings: (callback: () => void) => () => void;
       onMenuImportCurl: (callback: () => void) => () => void;
       onMenuImportOpenApi: (callback: () => void) => () => void;
+      onMenuImportPostman: (callback: () => void) => () => void;
+      onMenuImportBruno: (callback: () => void) => () => void;
       onMenuToggleTerminal: (callback: () => void) => () => void;
       onMenuNewTerminal: (callback: () => void) => () => void;
       /** Reports whether any open collection has unsaved changes so the main process can guard window close / app quit. */

@@ -11,6 +11,12 @@ import {
   type RequestItem,
   type VariableEntry,
 } from '../../shared/collectionSchema';
+import {
+  duplicateTreeItem,
+  moveTreeItem,
+  moveTreeItemBetweenCollections,
+  type TreeDropTarget,
+} from '../../shared/collectionTreeMove';
 import { syncPathParamsFromUrl, syncQueryParamsFromUrl } from '../../shared/urlParams';
 import type { HttpResponseResult } from '../../shared/httpTypes';
 import type { VariableInterpolationContext } from '../../shared/interpolation';
@@ -277,6 +283,20 @@ const WorkspaceShell: React.FC = () => {
     [loadCollectionFromDisk],
   );
 
+  /** Opens an imported (not yet saved) collection next to its source file and makes it active. */
+  const addImportedCollection = useCallback(
+    (res: { sourcePath: string; collection: AwjcCollection } | null | undefined) => {
+      if (!res?.collection) return;
+      const virtualPath = `${res.sourcePath}.awjc`;
+      setCollections(prev => [
+        ...prev,
+        { filePath: virtualPath, collection: res.collection, isDirty: true },
+      ]);
+      setActiveCollectionPath(virtualPath);
+    },
+    [],
+  );
+
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) {
@@ -459,16 +479,13 @@ const WorkspaceShell: React.FC = () => {
       setImportCurlModalOpen(true);
     });
     const unsubscribeMenuOpenApi = api.onMenuImportOpenApi?.(() => {
-      void api.importOpenApiWithDialog?.().then(res => {
-        if (res?.collection) {
-          const virtualPath = `${res.sourcePath}.awjc`;
-          setCollections(prev => [
-            ...prev,
-            { filePath: virtualPath, collection: res.collection, isDirty: true },
-          ]);
-          setActiveCollectionPath(virtualPath);
-        }
-      });
+      void api.importOpenApiWithDialog?.().then(addImportedCollection);
+    });
+    const unsubscribeMenuPostman = api.onMenuImportPostman?.(() => {
+      void api.importPostmanWithDialog?.().then(addImportedCollection);
+    });
+    const unsubscribeMenuBruno = api.onMenuImportBruno?.(() => {
+      void api.importBrunoWithDialog?.().then(addImportedCollection);
     });
     const unsubscribeMenuSettings = api.onMenuOpenSettings?.(() => {
       setSettingsModalOpen(true);
@@ -486,11 +503,13 @@ const WorkspaceShell: React.FC = () => {
       unsubscribeMenuOpen?.();
       unsubscribeMenuCurl?.();
       unsubscribeMenuOpenApi?.();
+      unsubscribeMenuPostman?.();
+      unsubscribeMenuBruno?.();
       unsubscribeMenuSettings?.();
       unsubscribeMenuToggleTerminal?.();
       unsubscribeMenuNewTerminal?.();
     };
-  }, [addCollectionByPath, loadCollectionFromDisk]);
+  }, [addCollectionByPath, addImportedCollection, loadCollectionFromDisk]);
 
   useEffect(() => {
     if (!isSessionHydratedRef.current) return;
@@ -610,15 +629,15 @@ const WorkspaceShell: React.FC = () => {
   };
 
   const handleImportOpenApiDialog = async () => {
-    const res = await window.electronAPI?.importOpenApiWithDialog?.();
-    if (res?.collection) {
-      const virtualPath = `${res.sourcePath}.awjc`;
-      setCollections(prev => [
-        ...prev,
-        { filePath: virtualPath, collection: res.collection, isDirty: true },
-      ]);
-      setActiveCollectionPath(virtualPath);
-    }
+    addImportedCollection(await window.electronAPI?.importOpenApiWithDialog?.());
+  };
+
+  const handleImportPostmanDialog = async () => {
+    addImportedCollection(await window.electronAPI?.importPostmanWithDialog?.());
+  };
+
+  const handleImportBrunoDialog = async () => {
+    addImportedCollection(await window.electronAPI?.importBrunoWithDialog?.());
   };
 
   const handleNewCollection = () => {
@@ -1148,6 +1167,153 @@ const WorkspaceShell: React.FC = () => {
     void window.electronAPI?.respondToAppClose?.(false);
   };
 
+  // Drag & drop in the sidebar only changes in-memory state; the affected
+  // collections are marked dirty and persisted on the next save.
+  const handleMoveTreeItem = (
+    sourcePath: string,
+    itemId: string,
+    targetPath: string,
+    target: TreeDropTarget,
+  ) => {
+    const sourceEntry = collections.find(c => c.filePath === sourcePath);
+    const targetEntry = collections.find(c => c.filePath === targetPath);
+    if (!sourceEntry || !targetEntry) return;
+
+    if (sourcePath === targetPath) {
+      const nextItems = moveTreeItem(sourceEntry.collection.items, itemId, target);
+      if (!nextItems) return;
+      setCollections(prev =>
+        prev.map(c =>
+          c.filePath === sourcePath
+            ? { ...c, isDirty: true, collection: { ...c.collection, items: nextItems } }
+            : c,
+        ),
+      );
+      return;
+    }
+
+    const result = moveTreeItemBetweenCollections(
+      sourceEntry.collection.items,
+      targetEntry.collection.items,
+      itemId,
+      target,
+    );
+    if (!result) return;
+    setCollections(prev =>
+      prev.map(c => {
+        if (c.filePath === sourcePath) {
+          return { ...c, isDirty: true, collection: { ...c.collection, items: result.sourceItems } };
+        }
+        if (c.filePath === targetPath) {
+          return { ...c, isDirty: true, collection: { ...c.collection, items: result.targetItems } };
+        }
+        return c;
+      }),
+    );
+    // Open tabs follow their request into the target collection (ids may change on collision).
+    setTabs(prev =>
+      prev.map(t => {
+        if (t.collectionPath !== sourcePath) return t;
+        const newId = result.idMap.get(t.request.id);
+        if (newId === undefined) return t;
+        return {
+          ...t,
+          collectionPath: targetPath,
+          request: { ...t.request, id: newId },
+          ...(t.savedRequest ? { savedRequest: { ...t.savedRequest, id: newId } } : {}),
+        };
+      }),
+    );
+    setActiveCollectionPath(targetPath);
+  };
+
+  /** Renames a tree item and any open tab showing it, so later tab edits don't restore the old name. */
+  const handleRenameTreeItem = (collectionPath: string, itemId: string, newName: string) => {
+    setCollections(prev =>
+      prev.map(c =>
+        c.filePath === collectionPath
+          ? {
+              ...c,
+              isDirty: true,
+              collection: {
+                ...c.collection,
+                items: updateItemInTree(c.collection.items, itemId, item => ({
+                  ...item,
+                  name: newName,
+                })),
+              },
+            }
+          : c,
+      ),
+    );
+    setTabs(prev =>
+      prev.map(t =>
+        t.collectionPath === collectionPath && t.request.id === itemId
+          ? { ...t, request: { ...t.request, name: newName }, isDirty: true }
+          : t,
+      ),
+    );
+  };
+
+  const handleRenameTab = (tabId: string, newName: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab) return;
+    if (isTabAttachedToCollection(tab, collections)) {
+      handleRenameTreeItem(tab.collectionPath!, tab.request.id, newName);
+      return;
+    }
+    setTabs(prev =>
+      prev.map(t =>
+        t.id === tabId ? { ...t, request: { ...t.request, name: newName }, isDirty: true } : t,
+      ),
+    );
+  };
+
+  /**
+   * Duplicates a tab's request and opens the copy in a new tab next to it.
+   * Saved requests are copied in their collection, right after the original.
+   */
+  const handleDuplicateTab = (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab) return;
+    let copy: RequestItem;
+    let collectionPath: string | null = null;
+    if (isTabAttachedToCollection(tab, collections)) {
+      collectionPath = tab.collectionPath!;
+      const entry = collections.find(c => c.filePath === collectionPath)!;
+      const result = duplicateTreeItem(entry.collection.items, tab.request.id);
+      if (!result || result.copy.kind !== 'request') return;
+      copy = result.copy;
+      setCollections(prev =>
+        prev.map(c =>
+          c.filePath === collectionPath
+            ? { ...c, isDirty: true, collection: { ...c.collection, items: result.items } }
+            : c,
+        ),
+      );
+    } else {
+      copy = {
+        ...tab.request,
+        id: generateAwjcId('req'),
+        name: `${tab.request.name || 'Untitled Request'} (Copy)`,
+      };
+    }
+    const newTabId = generateAwjcId('tab');
+    setTabs(prev => {
+      const idx = prev.findIndex(t => t.id === tabId);
+      const next = [...prev];
+      next.splice(idx + 1, 0, {
+        id: newTabId,
+        collectionPath,
+        request: copy,
+        savedRequest: copy,
+        isDirty: true,
+      });
+      return next;
+    });
+    setActiveTabId(newTabId);
+  };
+
   const handleSelectRequestFromTree = (collectionPath: string, req: RequestItem) => {
     setActiveCollectionPath(collectionPath);
     if (req.protocol === 'graphql') {
@@ -1317,6 +1483,8 @@ const WorkspaceShell: React.FC = () => {
           setRunnerModalOpen(true);
         }}
         onOpenImportOpenApi={() => void handleImportOpenApiDialog()}
+        onOpenImportPostman={() => void handleImportPostmanDialog()}
+        onOpenImportBruno={() => void handleImportBrunoDialog()}
         onOpenImportCurl={() => {
           setImportCurlError(null);
           setImportCurlModalOpen(true);
@@ -1477,19 +1645,14 @@ const WorkspaceShell: React.FC = () => {
                 setCollections(prev =>
                   prev.map(c => {
                     if (c.filePath !== fp) return c;
-                    const found = findItemById(c.collection.items, itemId);
-                    if (!found) return c;
-                    const copy: CollectionTreeItem = {
-                      ...found,
-                      id: generateAwjcId(found.kind === 'folder' ? 'fld' : 'req'),
-                      name: `${found.name} (Copy)`,
-                    };
+                    const result = duplicateTreeItem(c.collection.items, itemId);
+                    if (!result) return c;
                     return {
                       ...c,
                       isDirty: true,
                       collection: {
                         ...c.collection,
-                        items: [...c.collection.items, copy],
+                        items: result.items,
                       },
                     };
                   }),
@@ -1514,25 +1677,7 @@ const WorkspaceShell: React.FC = () => {
                   ),
                 );
               }}
-              onRenameItem={(fp, itemId, newName) => {
-                setCollections(prev =>
-                  prev.map(c =>
-                    c.filePath === fp
-                      ? {
-                          ...c,
-                          isDirty: true,
-                          collection: {
-                            ...c.collection,
-                            items: updateItemInTree(c.collection.items, itemId, item => ({
-                              ...item,
-                              name: newName,
-                            })),
-                          },
-                        }
-                      : c,
-                  ),
-                );
-              }}
+              onRenameItem={handleRenameTreeItem}
               onDeleteItem={(fp, itemId) => {
                 setCollections(prev =>
                   prev.map(c =>
@@ -1549,6 +1694,7 @@ const WorkspaceShell: React.FC = () => {
                   ),
                 );
               }}
+              onMoveItem={handleMoveTreeItem}
               onGenerateCodeForRequest={(fp, req) => {
                 setActiveCollectionPath(fp);
                 setCodeSnippetTargetRequest(req);
@@ -1617,6 +1763,8 @@ const WorkspaceShell: React.FC = () => {
                   setCodeSnippetTargetRequest(tab.request);
                   setCodeSnippetModalOpen(true);
                 }}
+                onRenameTab={handleRenameTab}
+                onDuplicateTab={handleDuplicateTab}
               />
 
               {/* Split Pane: Request Builder (Top/Left) <-> Response Inspector (Bottom/Right) */}

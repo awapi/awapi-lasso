@@ -71,6 +71,26 @@ export const electronAPI = {
       collection: AwjcCollection;
     } | null>,
 
+  /**
+   * Opens a native dialog to pick `bruno.json` in a Bruno collection folder (or a Bruno JSON export)
+   * and imports it as a collection. Main shows import notes and errors in a message box.
+   */
+  importBrunoWithDialog: () =>
+    ipcRenderer.invoke('collection:importBrunoDialog') as Promise<{
+      sourcePath: string;
+      collection: AwjcCollection;
+    } | null>,
+
+  /**
+   * Opens a native dialog to pick a Postman collection export (plus optional environment / globals
+   * exports) and imports it as a collection. Main shows import notes and errors in a message box.
+   */
+  importPostmanWithDialog: () =>
+    ipcRenderer.invoke('collection:importPostmanDialog') as Promise<{
+      sourcePath: string;
+      collection: AwjcCollection;
+    } | null>,
+
   /** Saves a collection to `filePath` (stripping `secret: true` values into OS Keychain). */
   saveCollection: (options: { filePath: string; collection: AwjcCollection }) =>
     ipcRenderer.invoke('collection:save', options) as Promise<{
@@ -330,6 +350,20 @@ export const electronAPI = {
     ipcRenderer.on('menu:importOpenApi', listener);
     return () => {
       ipcRenderer.removeListener('menu:importOpenApi', listener);
+    };
+  },
+  onMenuImportBruno: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('menu:importBruno', listener);
+    return () => {
+      ipcRenderer.removeListener('menu:importBruno', listener);
+    };
+  },
+  onMenuImportPostman: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('menu:importPostman', listener);
+    return () => {
+      ipcRenderer.removeListener('menu:importPostman', listener);
     };
   },
   onMenuToggleTerminal: (callback: () => void) => {

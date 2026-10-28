@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import App from './App';
+import {
+  createDefaultFolder,
+  createDefaultHttpRequest,
+  createEmptyCollection,
+  type AwjcCollection,
+} from '../../shared/collectionSchema';
 
 vi.mock('./components/TerminalView', () => ({
   default: (props: { sessionId: number; isActive: boolean }) => (
@@ -30,6 +36,8 @@ describe('App shell', () => {
       openCollectionsWithDialog: vi.fn().mockResolvedValue(null),
       openCollectionFromPath: vi.fn(),
       importOpenApiWithDialog: vi.fn().mockResolvedValue(null),
+      importPostmanWithDialog: vi.fn().mockResolvedValue(null),
+      importBrunoWithDialog: vi.fn().mockResolvedValue(null),
       saveCollection: vi.fn(),
       saveCollectionAs: vi.fn().mockResolvedValue(null),
       watchCollectionPaths: vi.fn().mockResolvedValue(undefined),
@@ -171,6 +179,8 @@ describe('App shell', () => {
       onMenuOpenSettings: vi.fn(() => () => {}),
       onMenuImportCurl: vi.fn(() => () => {}),
       onMenuImportOpenApi: vi.fn(() => () => {}),
+      onMenuImportPostman: vi.fn(() => () => {}),
+      onMenuImportBruno: vi.fn(() => () => {}),
       onMenuToggleTerminal: vi.fn(() => () => {}),
       onMenuNewTerminal: vi.fn(() => () => {}),
     };
@@ -298,6 +308,55 @@ describe('App shell', () => {
     await waitFor(() => {
       expect(screen.getByTestId('empty-collections-msg')).toBeInTheDocument();
     });
+  });
+
+  it('opens Postman imports from the toolbar and the native menu as unsaved collections', async () => {
+    const imported = (name: string) => ({
+      sourcePath: `/Users/me/exports/${name}.postman_collection`,
+      collection: createEmptyCollection(name, { items: [createDefaultHttpRequest({ name: 'List orders' })] }),
+    });
+    vi.mocked(window.electronAPI.importPostmanWithDialog)
+      .mockResolvedValueOnce(imported('Shop API'))
+      .mockResolvedValueOnce(imported('Billing API'));
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    fireEvent.click(screen.getByTestId('import-postman-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list')).toHaveTextContent('Shop API');
+    });
+
+    const onMenuImportPostman = vi.mocked(window.electronAPI.onMenuImportPostman).mock.calls[0][0];
+    await act(async () => onMenuImportPostman());
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list')).toHaveTextContent('Billing API');
+    });
+    expect(window.electronAPI.importPostmanWithDialog).toHaveBeenCalledTimes(2);
+    expect(window.electronAPI.setUnsavedChanges).toHaveBeenLastCalledWith(true);
+  });
+
+  it('opens Bruno imports from the toolbar and the native menu as unsaved collections', async () => {
+    const imported = (name: string) => ({
+      sourcePath: `/Users/me/bruno/${name}`,
+      collection: createEmptyCollection(name, { items: [createDefaultHttpRequest({ name: 'Get user' })] }),
+    });
+    vi.mocked(window.electronAPI.importBrunoWithDialog)
+      .mockResolvedValueOnce(imported('Users API'))
+      .mockResolvedValueOnce(imported('Payments API'));
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    fireEvent.click(screen.getByTestId('import-bruno-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list')).toHaveTextContent('Users API');
+    });
+
+    const onMenuImportBruno = vi.mocked(window.electronAPI.onMenuImportBruno).mock.calls[0][0];
+    await act(async () => onMenuImportBruno());
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list')).toHaveTextContent('Payments API');
+    });
+    expect(window.electronAPI.importBrunoWithDialog).toHaveBeenCalledTimes(2);
   });
 
   it('receives .awjc files opened from OS file association over IPC', async () => {
@@ -1042,5 +1101,221 @@ describe('App shell', () => {
     expect(window.electronAPI.openInTerminal).toHaveBeenCalledWith(
       '/Users/me/apis/payments.awjc',
     );
+  });
+
+  it('moves requests between collections by drag and drop and saves both collections', async () => {
+    const makeCollection = (id: string, name: string, reqId: string) =>
+      createEmptyCollection(name, {
+        metadata: { id, name },
+        items: [createDefaultHttpRequest({ id: reqId, name: reqId })],
+      });
+    const collectionsByPath: Record<string, AwjcCollection> = {
+      '/Users/me/apis/a.awjc': makeCollection('col_a', 'A API', 'req_a'),
+      '/Users/me/apis/b.awjc': makeCollection('col_b', 'B API', 'req_b'),
+    };
+    window.electronAPI.openCollectionFromPath = vi.fn(async (filePath: string) => ({
+      filePath,
+      collection: collectionsByPath[filePath],
+    }));
+    window.electronAPI.loadSession = vi.fn().mockResolvedValue({
+      openCollectionPaths: Object.keys(collectionsByPath),
+      tabs: [],
+    });
+    window.electronAPI.saveCollection = vi.fn(async ({ filePath }: { filePath: string }) => ({
+      filePath,
+      serialized: '',
+    }));
+
+    render(<App />);
+    const source = await screen.findByTestId('tree-request-req_a');
+    const dataTransfer = { setData: vi.fn(), effectAllowed: 'none', dropEffect: 'none' };
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.dragOver(screen.getByTestId('collection-tree-col_b'), { dataTransfer });
+    fireEvent.drop(screen.getByTestId('collection-tree-col_b'), { dataTransfer });
+
+    // Moved in memory and both collections marked unsaved; nothing is written yet.
+    const treeB = screen.getByTestId('collection-tree-col_b');
+    expect(within(treeB).getByTestId('tree-request-req_a')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('collection-tree-col_a')).queryByTestId('tree-request-req_a'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('collection-node-col_a')).toHaveTextContent('A API •');
+    expect(screen.getByTestId('collection-node-col_b')).toHaveTextContent('B API •');
+    expect(window.electronAPI.saveCollection).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('collection-save-btn-col_a'));
+    fireEvent.click(screen.getByTestId('collection-save-btn-col_b'));
+    await waitFor(() => {
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledTimes(2);
+    });
+    const saved = vi.mocked(window.electronAPI.saveCollection).mock.calls.map(([arg]) => ({
+      filePath: arg.filePath,
+      ids: arg.collection.items.map(i => i.id),
+    }));
+    expect(saved).toEqual([
+      { filePath: '/Users/me/apis/a.awjc', ids: [] },
+      { filePath: '/Users/me/apis/b.awjc', ids: ['req_b', 'req_a'] },
+    ]);
+  });
+
+  it('duplicates a request right after the original, inside the same folder', async () => {
+    const collection = createEmptyCollection('A API', {
+      metadata: { id: 'col_a', name: 'A API' },
+      items: [
+        createDefaultFolder(
+          'Users',
+          [
+            createDefaultHttpRequest({ id: 'req_1', name: 'List' }),
+            createDefaultHttpRequest({ id: 'req_2', name: 'Get' }),
+          ],
+          { id: 'fld_users' },
+        ),
+        createDefaultHttpRequest({ id: 'req_root', name: 'Root' }),
+      ],
+    });
+    window.electronAPI.openCollectionFromPath = vi.fn(async (filePath: string) => ({
+      filePath,
+      collection,
+    }));
+    window.electronAPI.loadSession = vi.fn().mockResolvedValue({
+      openCollectionPaths: ['/Users/me/apis/a.awjc'],
+      tabs: [],
+    });
+    window.electronAPI.saveCollection = vi.fn(async ({ filePath }: { filePath: string }) => ({
+      filePath,
+      serialized: '',
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('item-menu-btn-req_1'));
+    fireEvent.click(screen.getByTestId('menu-duplicate-req_1'));
+    fireEvent.click(screen.getByTestId('collection-save-btn-col_a'));
+
+    await waitFor(() => {
+      expect(window.electronAPI.saveCollection).toHaveBeenCalledTimes(1);
+    });
+    const [{ collection: saved }] = vi.mocked(window.electronAPI.saveCollection).mock.calls[0];
+    expect(saved.items.map(i => i.id)).toEqual(['fld_users', 'req_root']);
+    const folder = saved.items[0];
+    if (folder.kind !== 'folder') throw new Error('expected folder');
+    expect(folder.items.map(i => i.name)).toEqual(['List', 'List (Copy)', 'Get']);
+    expect(folder.items[1].id).not.toBe('req_1');
+  });
+
+  describe('tab rename and duplicate', () => {
+    const setupCollection = () => {
+      const collection = createEmptyCollection('A API', {
+        metadata: { id: 'col_a', name: 'A API' },
+        items: [
+          createDefaultFolder(
+            'Users',
+            [
+              createDefaultHttpRequest({ id: 'req_1', name: 'List' }),
+              createDefaultHttpRequest({ id: 'req_2', name: 'Get' }),
+            ],
+            { id: 'fld_users' },
+          ),
+        ],
+      });
+      window.electronAPI.openCollectionFromPath = vi.fn(async (filePath: string) => ({
+        filePath,
+        collection,
+      }));
+      window.electronAPI.loadSession = vi.fn().mockResolvedValue({
+        openCollectionPaths: ['/Users/me/apis/a.awjc'],
+        tabs: [],
+      });
+      window.electronAPI.saveCollection = vi.fn(async ({ filePath }: { filePath: string }) => ({
+        filePath,
+        serialized: '',
+      }));
+    };
+
+    const requestTabs = () =>
+      screen
+        .getAllByTestId(/^request-tab-/)
+        .filter(el => /^request-tab-tab_/.test(el.getAttribute('data-testid') ?? ''));
+
+    const openTabFor = async (reqId: string) => {
+      fireEvent.click(await screen.findByTestId(`tree-request-${reqId}`));
+      const tab = requestTabs().find(el => el.getAttribute('data-active') === 'true')!;
+      return tab.getAttribute('data-testid')!.replace('request-tab-', '');
+    };
+
+    const savedFolderNames = async () => {
+      fireEvent.click(screen.getByTestId('collection-save-btn-col_a'));
+      await waitFor(() => {
+        expect(window.electronAPI.saveCollection).toHaveBeenCalledTimes(1);
+      });
+      const [{ collection: saved }] = vi.mocked(window.electronAPI.saveCollection).mock.calls[0];
+      const folder = saved.items[0];
+      if (folder.kind !== 'folder') throw new Error('expected folder');
+      return folder.items.map(i => i.name);
+    };
+
+    it('renames a saved request from its tab and updates the sidebar', async () => {
+      setupCollection();
+      render(<App />);
+      const tabId = await openTabFor('req_1');
+
+      fireEvent.contextMenu(screen.getByTestId(`request-tab-${tabId}`));
+      fireEvent.click(screen.getByTestId(`tab-ctx-rename-${tabId}`));
+      const input = screen.getByTestId(`tab-rename-input-${tabId}`);
+      fireEvent.change(input, { target: { value: 'List Users' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(screen.getByTestId(`tab-title-${tabId}`)).toHaveTextContent('List Users');
+      expect(screen.getByTestId('tree-request-req_1')).toHaveTextContent('List Users');
+      expect(await savedFolderNames()).toEqual(['List Users', 'Get']);
+    });
+
+    it('renaming in the sidebar updates the open tab', async () => {
+      setupCollection();
+      render(<App />);
+      const tabId = await openTabFor('req_2');
+
+      fireEvent.click(screen.getByTestId('item-menu-btn-req_2'));
+      fireEvent.click(screen.getByText('Rename'));
+      const input = screen.getByTestId('rename-input-req_2');
+      fireEvent.change(input, { target: { value: 'Get User' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(screen.getByTestId(`tab-title-${tabId}`)).toHaveTextContent('Get User');
+      expect(screen.getByTestId(`tab-dirty-${tabId}`)).toBeInTheDocument();
+    });
+
+    it('duplicates a saved request from its tab next to the original and opens it', async () => {
+      setupCollection();
+      render(<App />);
+      const tabId = await openTabFor('req_1');
+      await openTabFor('req_2');
+
+      fireEvent.contextMenu(screen.getByTestId(`request-tab-${tabId}`));
+      fireEvent.click(screen.getByTestId(`tab-ctx-duplicate-${tabId}`));
+
+      const tabs = requestTabs();
+      expect(tabs.map(el => within(el).getByTestId(/^tab-title-/).textContent)).toEqual([
+        'List',
+        'List (Copy)',
+        'Get',
+      ]);
+      expect(tabs[1]).toHaveAttribute('data-active', 'true');
+      expect(await savedFolderNames()).toEqual(['List', 'List (Copy)', 'Get']);
+    });
+
+    it('duplicates an unsaved tab into a new unsaved tab', async () => {
+      render(<App />);
+      fireEvent.click(screen.getByTestId('new-request-tab-btn'));
+      const [, tab] = requestTabs().slice(-2);
+      const tabId = tab.getAttribute('data-testid')!.replace('request-tab-', '');
+      const name = screen.getByTestId(`tab-title-${tabId}`).textContent;
+
+      fireEvent.contextMenu(tab);
+      fireEvent.click(screen.getByTestId(`tab-ctx-duplicate-${tabId}`));
+
+      const last = requestTabs().at(-1)!;
+      expect(last).toHaveAttribute('data-active', 'true');
+      expect(within(last).getByTestId(/^tab-title-/)).toHaveTextContent(`${name} (Copy)`);
+    });
   });
 });

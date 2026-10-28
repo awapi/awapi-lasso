@@ -37,6 +37,8 @@ describe('TopToolbar', () => {
     const onOpenPreferences = vi.fn();
     const onOpenImportOpenApi = vi.fn();
     const onOpenImportCurl = vi.fn();
+    const onOpenImportPostman = vi.fn();
+    const onOpenImportBruno = vi.fn();
     const onOpenCollectionRunner = vi.fn();
 
     render(
@@ -51,6 +53,8 @@ describe('TopToolbar', () => {
           onOpenPreferences={onOpenPreferences}
           onOpenImportOpenApi={onOpenImportOpenApi}
           onOpenImportCurl={onOpenImportCurl}
+          onOpenImportPostman={onOpenImportPostman}
+          onOpenImportBruno={onOpenImportBruno}
           onOpenCollectionRunner={onOpenCollectionRunner}
           cliEnabled={true}
         />
@@ -86,13 +90,13 @@ describe('TopToolbar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Runner' }));
     expect(onOpenCollectionRunner).toHaveBeenCalledTimes(1);
 
-    // Import dropdown menu shows OpenAPI / Swagger, cURL, and upcoming Bruno / Postman options
+    // Import dropdown menu shows OpenAPI / Swagger, cURL, Postman, and Bruno options
     expect(screen.getByTestId('toolbar-import-btn')).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(screen.getByTestId('toolbar-import-btn'));
     expect(screen.getByTestId('toolbar-import-btn')).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('toolbar-import-menu')).toBeInTheDocument();
-    expect(screen.getByTestId('import-bruno-btn')).toBeDisabled();
-    expect(screen.getByTestId('import-postman-btn')).toBeDisabled();
+    expect(screen.getByTestId('import-bruno-btn')).toBeEnabled();
+    expect(screen.getByTestId('import-postman-btn')).toBeEnabled();
 
     fireEvent.click(screen.getByTestId('import-openapi-btn'));
     expect(onOpenImportOpenApi).toHaveBeenCalledTimes(1);
@@ -101,6 +105,16 @@ describe('TopToolbar', () => {
     fireEvent.click(screen.getByTestId('toolbar-import-btn'));
     fireEvent.click(screen.getByTestId('open-import-curl-btn'));
     expect(onOpenImportCurl).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    fireEvent.click(screen.getByTestId('import-postman-btn'));
+    expect(onOpenImportPostman).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('toolbar-import-menu')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('toolbar-import-btn'));
+    fireEvent.click(screen.getByTestId('import-bruno-btn'));
+    expect(onOpenImportBruno).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('toolbar-import-menu')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('open-preferences-btn'));
     expect(onOpenPreferences).toHaveBeenCalledTimes(1);

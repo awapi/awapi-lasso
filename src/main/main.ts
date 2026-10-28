@@ -27,6 +27,9 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import type { AwjcCollection } from '../shared/collectionSchema';
 import { importOpenApiSpec } from '../shared/openapiImporter';
+import { importPostmanFiles } from '../shared/postmanImporter';
+import { importBrunoCollectionFiles, importBrunoExport } from '../shared/brunoImporter';
+import { readBrunoCollectionFolder } from './brunoCollectionReader';
 import { checkForUpdates } from './updater';
 import { showAboutDialog } from './about';
 import {
@@ -477,12 +480,24 @@ function rebuildAppMenu(): void {
             },
             { type: 'separator' },
             {
-              label: 'Import from Bruno (Coming Soon)',
-              enabled: false,
+              label: 'Import from Postman…',
+              click: () => {
+                const win = ensureWindow(mainWindow, () => {
+                  createWindow();
+                  return mainWindow!;
+                });
+                sendWhenLoaded(win, 'menu:importPostman');
+              },
             },
             {
-              label: 'Import from Postman (Coming Soon)',
-              enabled: false,
+              label: 'Import from Bruno…',
+              click: () => {
+                const win = ensureWindow(mainWindow, () => {
+                  createWindow();
+                  return mainWindow!;
+                });
+                sendWhenLoaded(win, 'menu:importBruno');
+              },
             },
           ],
         },
@@ -881,6 +896,104 @@ function registerIpcHandlers(): void {
       sourcePath: specPath,
       collection,
     };
+  });
+
+  ipcMain.handle('collection:importBrunoDialog', async () => {
+    // One file dialog covers both formats on every OS: pick `bruno.json` inside a collection
+    // folder, or a collection exported from Bruno as JSON.
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+      title: 'Import Bruno Collection',
+      message: 'Select bruno.json in a Bruno collection folder, or a Bruno JSON export.',
+      defaultPath: getLastOpenDirectory(),
+      properties: ['openFile'],
+      filters: [
+        { name: 'Bruno collection (bruno.json) or export (*.json)', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const picked = result.filePaths[0];
+    setLastOpenDirectoryFromFile(picked);
+
+    try {
+      const isFolder = path.basename(picked).toLowerCase() === 'bruno.json';
+      const rootDir = path.dirname(picked);
+      const imported = isFolder
+        ? importBrunoCollectionFiles(
+            readBrunoCollectionFolder(rootDir, {
+              readDir: dir =>
+                fs.readdirSync(dir, { withFileTypes: true }).map(e => ({
+                  name: e.name,
+                  isDirectory: e.isDirectory(),
+                  isFile: e.isFile(),
+                })),
+              readFile: fp => fs.readFileSync(fp, 'utf-8'),
+            }),
+          )
+        : importBrunoExport(fs.readFileSync(picked, 'utf-8'));
+      if (imported.warnings.length > 0) {
+        await dialog.showMessageBox(mainWindow ?? undefined!, {
+          type: 'info',
+          message: `Imported "${imported.collection.metadata.name}" with notes`,
+          detail: imported.warnings.map(w => `• ${w}`).join('\n'),
+        });
+      }
+      return {
+        // A folder import is saved next to the folder (`shop-api/` → `shop-api.awjc`).
+        sourcePath: isFolder ? rootDir : picked.replace(/\.json$/i, ''),
+        collection: imported.collection,
+      };
+    } catch (err) {
+      await dialog.showMessageBox(mainWindow ?? undefined!, {
+        type: 'error',
+        message: 'Failed to import from Bruno',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  });
+
+  ipcMain.handle('collection:importPostmanDialog', async () => {
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+      title: 'Import Postman Collection (and optional environments)',
+      message: 'Select a Postman collection export, plus any environment or globals exports.',
+      defaultPath: getLastOpenDirectory(),
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Postman exports (*.json)', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    setLastOpenDirectoryFromFile(result.filePaths[0]);
+
+    try {
+      const files = result.filePaths.map(fp => ({
+        name: path.basename(fp),
+        path: fp,
+        content: fs.readFileSync(fp, 'utf-8'),
+      }));
+      const imported = importPostmanFiles(files);
+      if (imported.warnings.length > 0) {
+        await dialog.showMessageBox(mainWindow ?? undefined!, {
+          type: 'info',
+          message: `Imported "${imported.collection.metadata.name}" with notes`,
+          detail: imported.warnings.map(w => `• ${w}`).join('\n'),
+        });
+      }
+      const source = files.find(f => f.name === imported.collectionFile) ?? files[0];
+      return {
+        sourcePath: source.path.replace(/\.json$/i, ''),
+        collection: imported.collection,
+      };
+    } catch (err) {
+      await dialog.showMessageBox(mainWindow ?? undefined!, {
+        type: 'error',
+        message: 'Failed to import from Postman',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   });
 
   ipcMain.handle(

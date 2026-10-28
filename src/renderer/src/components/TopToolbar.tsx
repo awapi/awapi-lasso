@@ -12,6 +12,8 @@ import {
   Upload,
   Columns,
   Rows,
+  PackageOpen,
+  FolderOpen,
 } from 'lucide-react';
 import type { EnvironmentConfig } from '../../../shared/collectionSchema';
 import type { GitCollectionStatus } from '../../../shared/gitTypes';
@@ -34,6 +36,8 @@ export interface TopToolbarProps {
   onOpenCollectionRunner?: () => void;
   onOpenImportCurl?: () => void;
   onOpenImportOpenApi?: () => void;
+  onOpenImportPostman?: () => void;
+  onOpenImportBruno?: () => void;
   cliEnabled?: boolean;
   cliCommandPath?: string | null;
   cliError?: string | null;
@@ -58,6 +62,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onOpenCollectionRunner,
   onOpenImportCurl,
   onOpenImportOpenApi,
+  onOpenImportPostman,
+  onOpenImportBruno,
   cliEnabled = false,
   cliCommandPath = null,
   cliError = null,
@@ -343,7 +349,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         )}
 
         {/* Unified Import Menu Button */}
-        {(onOpenImportOpenApi || onOpenImportCurl) && (
+        {(onOpenImportOpenApi || onOpenImportCurl || onOpenImportPostman || onOpenImportBruno) && (
           <div style={{ position: 'relative', display: 'inline-flex' }}>
             <button
               type="button"
@@ -440,53 +446,59 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                   }}
                 />
 
-                <button
-                  type="button"
-                  data-testid="import-bruno-btn"
-                  disabled
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    padding: '6px 10px',
-                    borderRadius: 4,
-                    border: 'none',
-                    background: 'transparent',
-                    color: colors.textSecondary,
-                    fontSize: 12,
-                    textAlign: 'left',
-                    opacity: 0.6,
-                    cursor: 'not-allowed',
-                  }}
-                >
-                  <span>Import from Bruno</span>
-                  <span style={{ fontSize: 10 }}>Soon</span>
-                </button>
+                {onOpenImportPostman && (
+                  <button
+                    type="button"
+                    data-testid="import-postman-btn"
+                    onClick={() => {
+                      setImportMenuOpen(false);
+                      onOpenImportPostman();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      border: 'none',
+                      background: 'transparent',
+                      color: colors.textPrimary,
+                      fontSize: 12,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <PackageOpen size={13} />
+                    Import from Postman…
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  data-testid="import-postman-btn"
-                  disabled
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    padding: '6px 10px',
-                    borderRadius: 4,
-                    border: 'none',
-                    background: 'transparent',
-                    color: colors.textSecondary,
-                    fontSize: 12,
-                    textAlign: 'left',
-                    opacity: 0.6,
-                    cursor: 'not-allowed',
-                  }}
-                >
-                  <span>Import from Postman</span>
-                  <span style={{ fontSize: 10 }}>Soon</span>
-                </button>
+                {onOpenImportBruno && (
+                  <button
+                    type="button"
+                    data-testid="import-bruno-btn"
+                    onClick={() => {
+                      setImportMenuOpen(false);
+                      onOpenImportBruno();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      border: 'none',
+                      background: 'transparent',
+                      color: colors.textPrimary,
+                      fontSize: 12,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FolderOpen size={13} />
+                    Import from Bruno…
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -36,7 +36,7 @@
 | **Captures & Assertions** | Extract values from responses into variables to chain requests, and verify status, time, headers, and JSONPath. |
 | **Collection Runner** | Run a collection or folder sequentially with pass/fail results. |
 | **AI Assistant** | Right-docked chat (Cmd/Ctrl+Shift+A) with your own OpenAI, Claude, or OpenAI-compatible key. Explains errors, writes GraphQL, and reads/edits requests, environments, and collections with approval. Auth and secrets are hidden from the AI. |
-| **Import & Code Generation** | Import cURL, OpenAPI, Swagger, and Postman; generate code snippets from any request. |
+| **Import & Code Generation** | Import cURL, OpenAPI, Swagger, Postman, and Bruno; generate code snippets from any request. |
 | **Request History** | Browse past requests and restore them in one click. |
 
 See the full list in [**Features & Roadmap (`docs/features.md`)**](docs/features.md).

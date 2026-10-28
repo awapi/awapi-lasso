@@ -1,0 +1,778 @@
+{
+  "info": {
+    "_postman_id": "4f6d2a51-8c1e-4b8e-9a77-1f2d3c4b5a60",
+    "name": "Orders & Inventory (Postman sample)",
+    "description": "Postman v2.1 export of the bundled sample API (`sample-api/`). Import it with **File > Import > Import from Postman...**, selecting this file together with `local.postman_environment.json` (and optionally `production.postman_environment.json`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "oauth2",
+    "oauth2": [
+      {
+        "key": "grant_type",
+        "value": "client_credentials"
+      },
+      {
+        "key": "accessTokenUrl",
+        "value": "{{authBaseUrl}}/oauth/token"
+      },
+      {
+        "key": "clientId",
+        "value": "{{clientId}}"
+      },
+      {
+        "key": "clientSecret",
+        "value": "{{clientSecret}}"
+      },
+      {
+        "key": "scope",
+        "value": "orders:read orders:write"
+      },
+      {
+        "key": "client_authentication",
+        "value": "header"
+      },
+      {
+        "key": "headerPrefix",
+        "value": "Bearer"
+      },
+      {
+        "key": "addTokenTo",
+        "value": "header"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Collection-level script: not imported (reported after import)",
+          "console.log(\"Calling\", pm.request.url.toString());"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "apiVersion",
+      "value": "v1",
+      "description": "Default API version path segment"
+    },
+    {
+      "key": "lastOrderId",
+      "value": "ord_1001",
+      "description": "Updated by the Create Order test script"
+    }
+  ],
+  "item": [
+    {
+      "name": "Orders REST API",
+      "description": "CRUD endpoints for customer orders",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Service is up\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Orders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.response.to.have.status(200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Debug",
+                "value": "1",
+                "disabled": true,
+                "description": "Enable for verbose server logs"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders?status=pending&limit=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending"
+                },
+                {
+                  "key": "limit",
+                  "value": "25"
+                },
+                {
+                  "key": "customerId",
+                  "value": "cust_901",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Order created\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set(\"lastOrderId\", json.data.id);",
+                  "pm.environment.set(\"orderLocation\", pm.response.headers.get(\"Location\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "auth": {
+              "type": "oauth2",
+              "oauth2": [
+                {
+                  "key": "grant_type",
+                  "value": "password_credentials"
+                },
+                {
+                  "key": "accessTokenUrl",
+                  "value": "{{authBaseUrl}}/oauth/token"
+                },
+                {
+                  "key": "clientId",
+                  "value": "{{clientId}}"
+                },
+                {
+                  "key": "clientSecret",
+                  "value": "{{clientSecret}}"
+                },
+                {
+                  "key": "username",
+                  "value": "{{apiUsername}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{apiPassword}}"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid profile orders:admin"
+                },
+                {
+                  "key": "client_authentication",
+                  "value": "body"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cust_901\",\n  \"currency\": \"USD\",\n  \"requestedAt\": \"{{$isoTimestamp}}\",\n  \"contactName\": \"{{$randomFullName}}\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-100\",\n      \"quantity\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Order by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.expect(pm.response.code).to.eql(200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders/:orderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders",
+                ":orderId"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{lastOrderId}}",
+                  "description": "Order to act on (set by Create Order)"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Order Status (JSON)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"shipped\",\n  \"notes\": \"Dispatched via express carrier\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders/:orderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders",
+                ":orderId"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{lastOrderId}}",
+                  "description": "Order to act on (set by Create Order)"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Order Status (form-urlencoded)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "status",
+                  "value": "delivered"
+                },
+                {
+                  "key": "notes",
+                  "value": "Left at reception"
+                },
+                {
+                  "key": "signature",
+                  "value": "n/a",
+                  "disabled": true
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders/:orderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders",
+                ":orderId"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{lastOrderId}}",
+                  "description": "Order to act on (set by Create Order)"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload Invoice Attachment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.response.to.have.status(201);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "documentType",
+                  "value": "invoice",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "./samples/invoice.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders/:orderId/attachments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders",
+                ":orderId",
+                "attachments"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{lastOrderId}}",
+                  "description": "Order to act on (set by Create Order)"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Check Orders Headers",
+          "request": {
+            "method": "HEAD",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Pre-request scripts are not imported (reported after import)",
+                  "pm.variables.set(\"deletedAt\", Date.now());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/{{apiVersion}}/orders/:orderId",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "{{apiVersion}}",
+                "orders",
+                ":orderId"
+              ],
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "{{lastOrderId}}",
+                  "description": "Order to act on (set by Create Order)"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inventory GraphQL API",
+      "item": [
+        {
+          "name": "Query Warehouse Stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.response.to.have.status(200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query GetWarehouseStock($sku: ID!, $warehouseId: ID) {\n  inventoryItem(sku: $sku, warehouseId: $warehouseId) {\n    sku\n    name\n    availableQuantity\n    inStock\n    warehouse {\n      id\n      name\n    }\n  }\n}\n",
+                "variables": "{\n  \"sku\": \"SKU-100\",\n  \"warehouseId\": \"WH-EAST-01\"\n}"
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mutate Inventory Stock",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation AdjustStock($sku: ID!, $delta: Int!) {\n  adjustInventoryStock(sku: $sku, delta: $delta) {\n    sku\n    availableQuantity\n  }\n}\n",
+                "variables": "{\n  \"sku\": \"SKU-200\",\n  \"delta\": 5\n}"
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth Playground",
+      "description": "One request per auth type supported by the sample API",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "Basic Auth",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{apiUsername}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{apiPassword}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/basic",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "basic"
+              ]
+            }
+          }
+        },
+        {
+          "name": "API Key (header)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "X-API-Key"
+                },
+                {
+                  "key": "value",
+                  "value": "{{apiKey}}"
+                },
+                {
+                  "key": "in",
+                  "value": "header"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/apikey",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "apikey"
+              ]
+            }
+          }
+        },
+        {
+          "name": "API Key (query, literal value)",
+          "request": {
+            "method": "GET",
+            "description": "The literal key is marked secret on import, so saving moves it to the OS keychain.",
+            "header": [],
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "api_key"
+                },
+                {
+                  "key": "value",
+                  "value": "sk_test_sample_4242"
+                },
+                {
+                  "key": "in",
+                  "value": "query"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/apikey",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "apikey"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Bearer Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{bearerToken}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/bearer",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "bearer"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Digest Auth",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "digest",
+              "digest": [
+                {
+                  "key": "username",
+                  "value": "{{apiUsername}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{apiPassword}}"
+                },
+                {
+                  "key": "realm",
+                  "value": "sample-api"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/digest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "digest"
+              ]
+            }
+          }
+        },
+        {
+          "name": "NTLM (unsupported)",
+          "request": {
+            "method": "GET",
+            "description": "Imported as No Auth and reported after import.",
+            "header": [],
+            "auth": {
+              "type": "ntlm",
+              "ntlm": [
+                {
+                  "key": "username",
+                  "value": "{{apiUsername}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{apiPassword}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/echo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "echo"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Echo (text body)",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "text/plain"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "Hello from Postman at {{$timestamp}}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/v1/echo?source=postman",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "echo"
+          ],
+          "query": [
+            {
+              "key": "source",
+              "value": "postman"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

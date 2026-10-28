@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Code2, Plus, RotateCcw, X } from 'lucide-react';
+import { Code2, Copy, Edit3, Plus, RotateCcw, X } from 'lucide-react';
 import type { RequestItem } from '../../../shared/collectionSchema';
 import { getMethodBadgeColor, getMethodBadgeLabel } from './CollectionSidebar';
 import { useTheme } from '../context/ThemeContext';
@@ -24,6 +24,8 @@ export interface RequestTabBarProps {
   onReopenClosedTab: () => void;
   onReorderTabs: (fromIndex: number, toIndex: number) => void;
   onGenerateCodeForTab?: (tab: RequestWorkspaceTab) => void;
+  onRenameTab?: (tabId: string, newName: string) => void;
+  onDuplicateTab?: (tabId: string) => void;
 }
 
 export const RequestTabBar: React.FC<RequestTabBarProps> = ({
@@ -38,9 +40,23 @@ export const RequestTabBar: React.FC<RequestTabBarProps> = ({
   onReopenClosedTab,
   onReorderTabs,
   onGenerateCodeForTab,
+  onRenameTab,
+  onDuplicateTab,
 }) => {
   const { colors, isLight } = useTheme();
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+
+  const commitRename = (tabId: string) => {
+    const trimmed = renameDraft.trim();
+    const tab = tabs.find(t => t.id === tabId);
+    if (trimmed && tab && trimmed !== tab.request.name) {
+      onRenameTab?.(tabId, trimmed);
+    }
+    setRenamingTabId(null);
+    setRenameDraft('');
+  };
   const [menuState, setMenuState] = useState<{
     tabId: string;
     top: number;
@@ -135,13 +151,14 @@ export const RequestTabBar: React.FC<RequestTabBarProps> = ({
         const badgeColor = getMethodBadgeColor(tab.request.method, tab.request.protocol);
         const badgeLabel = getMethodBadgeLabel(tab.request.method, tab.request.protocol);
         const isMenuOpen = menuTabId === tab.id;
+        const isRenaming = renamingTabId === tab.id;
 
         return (
           <div
             key={tab.id}
             data-testid={`request-tab-${tab.id}`}
             data-active={String(isActive)}
-            draggable
+            draggable={!isRenaming}
             onDragStart={() => setDragIndex(idx)}
             onDragOver={e => e.preventDefault()}
             onDrop={() => {
@@ -198,16 +215,43 @@ export const RequestTabBar: React.FC<RequestTabBarProps> = ({
             </span>
 
             {/* Tab Title */}
-            <span
-              data-testid={`tab-title-${tab.id}`}
-              style={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {tab.request.name || 'Untitled Request'}
-            </span>
+            {isRenaming ? (
+              <input
+                type="text"
+                data-testid={`tab-rename-input-${tab.id}`}
+                aria-label="Request name"
+                value={renameDraft}
+                autoFocus
+                onClick={e => e.stopPropagation()}
+                onChange={e => setRenameDraft(e.target.value)}
+                onBlur={() => commitRename(tab.id)}
+                onKeyDown={e => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') commitRename(tab.id);
+                  if (e.key === 'Escape') setRenamingTabId(null);
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: '1px 4px',
+                  borderRadius: 4,
+                  border: `1px solid ${colors.accent}`,
+                  backgroundColor: colors.bgPrimary,
+                  color: colors.textPrimary,
+                  width: 140,
+                }}
+              />
+            ) : (
+              <span
+                data-testid={`tab-title-${tab.id}`}
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {tab.request.name || 'Untitled Request'}
+              </span>
+            )}
 
             {/* Dirty Indicator */}
             {tab.isDirty && (
@@ -280,6 +324,33 @@ export const RequestTabBar: React.FC<RequestTabBarProps> = ({
                     style={{ ...ctxBtnStyle(colors), gap: 6 }}
                   >
                     <Code2 size={12} /> Generate Code Snippet…
+                  </button>
+                )}
+                {onRenameTab && (
+                  <button
+                    type="button"
+                    data-testid={`tab-ctx-rename-${tab.id}`}
+                    onClick={() => {
+                      setMenuState(null);
+                      setRenameDraft(tab.request.name);
+                      setRenamingTabId(tab.id);
+                    }}
+                    style={{ ...ctxBtnStyle(colors), gap: 6 }}
+                  >
+                    <Edit3 size={12} /> Rename
+                  </button>
+                )}
+                {onDuplicateTab && (
+                  <button
+                    type="button"
+                    data-testid={`tab-ctx-duplicate-${tab.id}`}
+                    onClick={() => {
+                      setMenuState(null);
+                      onDuplicateTab(tab.id);
+                    }}
+                    style={{ ...ctxBtnStyle(colors), gap: 6 }}
+                  >
+                    <Copy size={12} /> Duplicate
                   </button>
                 )}
                 <button

@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, createEvent } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { CollectionSidebar, type WorkspaceCollectionEntry } from './CollectionSidebar';
 import {
@@ -362,5 +362,180 @@ describe('CollectionSidebar', () => {
     // Double-click resets custom height back to equal flex distribution
     fireEvent.doubleClick(splitter);
     expect(firstNode).toHaveStyle({ flex: '1 1 0%' });
+  });
+
+  describe('drag and drop', () => {
+    const publicReq = createDefaultHttpRequest({ id: 'req_public_status', name: 'Status' });
+    const dndEntries: WorkspaceCollectionEntry[] = [
+      ...sampleEntries,
+      {
+        filePath: '/Users/me/apis/public.awjc',
+        collection: createEmptyCollection('Public Web APIs', {
+          metadata: { id: 'col_public', name: 'Public Web APIs' },
+          items: [publicReq],
+        }),
+      },
+    ];
+
+    const dataTransfer = () => ({
+      setData: vi.fn(),
+      getData: vi.fn(),
+      effectAllowed: 'none',
+      dropEffect: 'none',
+    });
+
+    /** jsdom has no DragEvent, so clientY has to be attached to the event by hand. */
+    function fireAt(type: 'dragOver' | 'drop', el: HTMLElement, clientY: number) {
+      const event = createEvent[type](el, { dataTransfer: dataTransfer() });
+      Object.defineProperty(event, 'clientY', { value: clientY });
+      fireEvent(el, event);
+    }
+
+    /** Row spanning y=100..120 so drops can target the top, middle, or bottom. */
+    function mockRowRect(el: HTMLElement) {
+      el.getBoundingClientRect = () =>
+        ({ top: 100, height: 20, bottom: 120, left: 0, right: 200, width: 200, x: 0, y: 100 }) as DOMRect;
+    }
+
+    function renderDnd(onMoveItem = vi.fn()) {
+      render(
+        <CollectionSidebar
+          collections={dndEntries}
+          onSelectCollection={vi.fn()}
+          onSelectRequest={vi.fn()}
+          onNewCollection={vi.fn()}
+          onImportCollection={vi.fn()}
+          onSaveCollection={vi.fn()}
+          onSaveCollectionAs={vi.fn()}
+          onNewHttpRequest={vi.fn()}
+          onNewGraphQLRequest={vi.fn()}
+          onNewFolder={vi.fn()}
+          onDuplicateItem={vi.fn()}
+          onRenameItem={vi.fn()}
+          onDeleteItem={vi.fn()}
+          onMoveItem={onMoveItem}
+        />,
+      );
+      return onMoveItem;
+    }
+
+    it('moves a request before or after another request based on the pointer position', () => {
+      const onMoveItem = renderDnd();
+      const source = screen.getByTestId('tree-request-req_gql_orders');
+      const target = screen.getByTestId('tree-request-req_get_users');
+      mockRowRect(target);
+
+      expect(source).toHaveAttribute('draggable', 'true');
+      fireEvent.dragStart(source, { dataTransfer: dataTransfer() });
+      fireAt('dragOver', target, 103);
+      expect(target.style.boxShadow).toBe('inset 0 2px 0 0 #f97316');
+      fireAt('drop', target, 103);
+
+      expect(onMoveItem).toHaveBeenCalledWith(
+        '/Users/me/apis/payments.awjc',
+        'req_gql_orders',
+        '/Users/me/apis/payments.awjc',
+        { targetId: 'req_get_users', position: 'before' },
+      );
+      expect(target.style.boxShadow).toBe('');
+
+      fireEvent.dragStart(source, { dataTransfer: dataTransfer() });
+      fireAt('drop', target, 118);
+      expect(onMoveItem).toHaveBeenLastCalledWith(
+        '/Users/me/apis/payments.awjc',
+        'req_gql_orders',
+        '/Users/me/apis/payments.awjc',
+        { targetId: 'req_get_users', position: 'after' },
+      );
+    });
+
+    it('drops a request into a folder and moves items to another collection', () => {
+      const onMoveItem = renderDnd();
+      const folderRow = screen.getByTestId('tree-folder-row-fld_admin');
+      mockRowRect(folderRow);
+
+      fireEvent.dragStart(screen.getByTestId('tree-request-req_get_users'), {
+        dataTransfer: dataTransfer(),
+      });
+      fireAt('drop', folderRow, 110);
+      expect(onMoveItem).toHaveBeenLastCalledWith(
+        '/Users/me/apis/payments.awjc',
+        'req_get_users',
+        '/Users/me/apis/payments.awjc',
+        { targetId: 'fld_admin', position: 'inside' },
+      );
+
+      // Folder onto a request in another collection
+      const otherReq = screen.getByTestId('tree-request-req_public_status');
+      mockRowRect(otherReq);
+      fireEvent.dragStart(folderRow, { dataTransfer: dataTransfer() });
+      fireAt('drop', otherReq, 115);
+      expect(onMoveItem).toHaveBeenLastCalledWith(
+        '/Users/me/apis/payments.awjc',
+        'fld_admin',
+        '/Users/me/apis/public.awjc',
+        { targetId: 'req_public_status', position: 'after' },
+      );
+
+      // Request onto another collection's header lands at that collection's root
+      fireEvent.dragStart(screen.getByTestId('tree-request-req_gql_orders'), {
+        dataTransfer: dataTransfer(),
+      });
+      fireEvent.dragOver(screen.getByTestId('collection-header-col_public'), {
+        dataTransfer: dataTransfer(),
+      });
+      expect(screen.getByTestId('collection-node-col_public').style.border).toContain(
+        'rgb(249, 115, 22)',
+      );
+      fireEvent.drop(screen.getByTestId('collection-header-col_public'), {
+        dataTransfer: dataTransfer(),
+      });
+      expect(onMoveItem).toHaveBeenLastCalledWith(
+        '/Users/me/apis/payments.awjc',
+        'req_gql_orders',
+        '/Users/me/apis/public.awjc',
+        { position: 'inside' },
+      );
+    });
+
+    it('ignores drops of a folder into its own subtree and drops without a drag in progress', () => {
+      const onMoveItem = renderDnd();
+      const folderRow = screen.getByTestId('tree-folder-row-fld_admin');
+      const child = screen.getByTestId('tree-request-req_gql_orders');
+      mockRowRect(child);
+
+      fireEvent.dragStart(folderRow, { dataTransfer: dataTransfer() });
+      fireAt('dragOver', child, 103);
+      expect(child.style.boxShadow).toBe('');
+      fireAt('drop', child, 103);
+      fireEvent.dragEnd(folderRow);
+
+      // No active drag (e.g. a file dragged in from the OS)
+      fireEvent.drop(screen.getByTestId('tree-request-req_get_users'), {
+        dataTransfer: dataTransfer(),
+      });
+      expect(onMoveItem).not.toHaveBeenCalled();
+    });
+
+    it('does not make items draggable when moving is not supported', () => {
+      render(
+        <CollectionSidebar
+          collections={sampleEntries}
+          onSelectCollection={vi.fn()}
+          onSelectRequest={vi.fn()}
+          onNewCollection={vi.fn()}
+          onImportCollection={vi.fn()}
+          onSaveCollection={vi.fn()}
+          onSaveCollectionAs={vi.fn()}
+          onNewHttpRequest={vi.fn()}
+          onNewGraphQLRequest={vi.fn()}
+          onNewFolder={vi.fn()}
+          onDuplicateItem={vi.fn()}
+          onRenameItem={vi.fn()}
+          onDeleteItem={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId('tree-request-req_get_users')).not.toHaveAttribute('draggable');
+    });
   });
 });
