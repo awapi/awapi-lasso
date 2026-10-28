@@ -1,6 +1,6 @@
 {
   "name": "awapi-lasso",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A fast, lightweight, cross-platform HTTP, RESTful, and GraphQL client",
   "main": "dist/main/main.js",
   "scripts": {
