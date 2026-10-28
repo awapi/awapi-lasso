@@ -17,6 +17,7 @@
 - **Click-to-Open OS Integration:** Double-click any `.awjc` or `.awj` collection file in macOS Finder, Windows Explorer (or via the right-click *"Open with AwapiLasso"* context menu), or Linux file manager to open it directly in AwapiLasso.
 - **Environments, `{{Variables}}` & Secrets:** Pass `{{baseUrl}}`, `{{token}}`, `{{userId}}`, and dynamic variables (`{{$uuid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`) into URLs, query/path parameters, headers, auth settings, request bodies, and GraphQL queries. Secret variables (passwords, API keys, client secrets, tokens) are protected in the OS Keychain (`safeStorage`) or a gitignored local sidecar—never leaked in plaintext inside `.awjc` files.
 - **Built-in AI Assistant (bring your own key):** A chat panel docked beside your requests that can explain errors, write GraphQL queries, and read or edit requests, environments, and collections with your approval. Use your own OpenAI, Anthropic (Claude), or OpenAI-compatible (Ollama, OpenRouter, …) key. Your key is kept in the OS Keychain, and **auth and secrets are never visible to the assistant**. See [AI Assistant](#-ai-assistant-bring-your-own-key).
+- **Bring Your Collections from Postman & Bruno:** Use **File → Import** to convert a Postman collection (with its environments) or a Bruno collection folder into a `.awjc` collection in one step. Pasted credentials and secret variables are moved to the OS Keychain when you save, so they never end up in the file.
 - **Built-in OAuth 2.0 Token Manager:** Acquire, inspect (with decoded JWT preview), cache, and auto-refresh tokens from OAuth 2.0 endpoints using **Password (`password`)**, **Client Credentials (`client_credentials`)**, **Authorization Code (`authorization_code` + PKCE)**, and **Refresh Token (`refresh_token`)** flows.
 
 ---
@@ -36,7 +37,8 @@
 | **Captures & Assertions** | Extract values from responses into variables to chain requests, and verify status, time, headers, and JSONPath. |
 | **Collection Runner** | Run a collection or folder sequentially with pass/fail results. |
 | **AI Assistant** | Right-docked chat (Cmd/Ctrl+Shift+A) with your own OpenAI, Claude, or OpenAI-compatible key. Explains errors, writes GraphQL, and reads/edits requests, environments, and collections with approval. Auth and secrets are hidden from the AI. |
-| **Import & Code Generation** | Import cURL, OpenAPI, Swagger, Postman, and Bruno; generate code snippets from any request. |
+| **Import** | **Postman** (Collection v2.0 / v2.1, plus environment and globals exports), **Bruno** (collection folder or JSON export, including environments), **OpenAPI 3.x / Swagger 2.0**, and **cURL**. Folders, requests, bodies (including GraphQL), auth, and variables carry over. Common Postman and Bruno test scripts become captures and assertions, and anything that can't be converted is listed after import. See [Importing](docs/importing.md). |
+| **Code Generation** | Generate code snippets from any request. |
 | **Request History** | Browse past requests and restore them in one click. |
 
 See the full list in [**Features & Roadmap (`docs/features.md`)**](docs/features.md).
@@ -168,6 +170,7 @@ just release 0.1.1 publish
 - 📄 [**`.awjc` / `.awj` Collection File Format Spec (`docs/file-format-spec.md`)**](docs/file-format-spec.md) — Annotated YAML schema, OAuth 2.0 & environment configurations, secret handling, and OS file associations.
 - 💬 [**AI Assistant (`docs/ai-assistant.md`)**](docs/ai-assistant.md) — Setup, what the in-app assistant can access, approvals, and the security and privacy model (keys, auth, secrets).
 - 🤖 [**AI / LLM Authoring Guide (`docs/ai-authoring-guide.md`)**](docs/ai-authoring-guide.md) — Point an AI agent here to generate `.awjc` collections (REST & GraphQL) with correct structure and no plaintext secrets.
+- 📥 [**Importing Collections (`docs/importing.md`)**](docs/importing.md) — Which Postman, Bruno, OpenAPI, and cURL files to import, what carries over, and what to check afterwards.
 - 🗺️ [**Features & Roadmap (`docs/features.md`)**](docs/features.md) — Full feature breakdown of what AwapiLasso does and its planned roadmap.
 - 🚀 [**Release, Packaging & CI/CD Process (`docs/release-process.md`)**](docs/release-process.md) — GitHub Actions workflows, Windows/macOS/Linux installer configurations, and `justfile` release automation.
 - 🧭 [**Agent Instructions (`AGENTS.md`)**](AGENTS.md) — Project conventions, Electron Main/Preload/Renderer boundaries, and mandatory testing rules.
