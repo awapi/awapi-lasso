@@ -6,6 +6,7 @@ import {
   Moon,
   Play,
   Settings,
+  Sparkles,
   Sun,
   Terminal,
   Upload,
@@ -39,6 +40,8 @@ export interface TopToolbarProps {
   onToggleCliCommand?: () => void;
   splitLayout?: 'vertical' | 'horizontal';
   onToggleSplitLayout?: () => void;
+  aiPanelOpen?: boolean;
+  onToggleAiPanel?: () => void;
 }
 
 export const TopToolbar: React.FC<TopToolbarProps> = ({
@@ -61,6 +64,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleCliCommand,
   splitLayout = 'vertical',
   onToggleSplitLayout,
+  aiPanelOpen = false,
+  onToggleAiPanel,
 }) => {
   const { isLight, colors, toggleTheme } = useTheme();
   const envSelectRef = useRef<HTMLSelectElement>(null);
@@ -104,12 +109,15 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       } else if (e.key === ',') {
         e.preventDefault();
         onOpenPreferences();
+      } else if (e.key.toLowerCase() === 'a' && e.shiftKey && onToggleAiPanel) {
+        e.preventDefault();
+        onToggleAiPanel();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onOpenPreferences]);
+  }, [onOpenPreferences, onToggleAiPanel]);
 
   const buttonStyle: React.CSSProperties = {
     display: 'inline-flex',
@@ -499,6 +507,26 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             style={{ ...buttonStyle, padding: 6 }}
           >
             {splitLayout === 'vertical' ? <Columns size={14} /> : <Rows size={14} />}
+          </button>
+        )}
+
+        {/* AI Assistant Toggle (Cmd/Ctrl+Shift+A) */}
+        {onToggleAiPanel && (
+          <button
+            type="button"
+            data-testid="toggle-ai-panel-btn"
+            onClick={onToggleAiPanel}
+            title="AI Assistant (Cmd/Ctrl+Shift+A)"
+            aria-label="Toggle AI assistant"
+            aria-pressed={aiPanelOpen}
+            style={{
+              ...buttonStyle,
+              padding: 6,
+              borderColor: aiPanelOpen ? colors.accent : colors.border,
+              color: aiPanelOpen ? colors.accent : colors.textPrimary,
+            }}
+          >
+            <Sparkles size={14} />
           </button>
         )}
 

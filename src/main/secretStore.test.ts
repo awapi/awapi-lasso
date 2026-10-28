@@ -7,6 +7,7 @@ import {
   getSecret,
   deleteSecret,
   getAllCollectionSecrets,
+  listVaultSecretValues,
   saveSidecarSecrets,
   ensureSecretsInGitignore,
   type SecretStoreDeps,
@@ -154,5 +155,19 @@ describe('secretStore', () => {
     const second = ensureSecretsInGitignore('/repo/.gitignore', deps);
     expect(second.updated).toBe(false);
     expect(second.addedPatterns).toEqual([]);
+  });
+});
+
+describe('listVaultSecretValues', () => {
+  it('returns every decryptable value across collections and skips corrupt entries', () => {
+    const { deps, files } = createMemorySecretDeps();
+    expect(listVaultSecretValues(deps)).toEqual([]);
+    setSecret({ collectionId: 'a', scopeId: 'collection', key: 'k1' }, 'value-one', deps);
+    setSecret({ collectionId: 'b', scopeId: 'env:e', key: 'k2' }, 'value-two', deps);
+    const vaultPath = `/userdata/${SECRETS_VAULT_FILENAME}`;
+    const vault = JSON.parse(files.get(vaultPath)!);
+    vault.entries['c::x::broken'] = 'enc:' + Buffer.from('garbage').toString('base64');
+    files.set(vaultPath, JSON.stringify(vault));
+    expect(listVaultSecretValues(deps).sort()).toEqual(['value-one', 'value-two']);
   });
 });

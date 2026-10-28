@@ -141,4 +141,23 @@ items: []
     expect(parsedPublic.collection.metadata.id).toBe('col_public_apis_01');
     expect(parsedPublic.collection.items).toHaveLength(3);
   });
+
+  it('keeps hideFromAi flags and their values when saving (unlike secret)', () => {
+    const req = createDefaultHttpRequest({
+      id: 'req_h',
+      headers: [{ key: 'X-Tenant', value: 'acme', enabled: true, hideFromAi: true }],
+    });
+    const col = createEmptyCollection('Hidden', {
+      items: [req],
+      variables: [{ key: 'accountId', value: '12345', enabled: true, hideFromAi: true }],
+      environments: [{ id: 'e', name: 'dev', variables: [{ key: 'region', value: 'eu', enabled: true, hideFromAi: true }] }],
+    });
+    const yamlText = serializeCollectionToYaml(col);
+    expect(yamlText).toContain('hideFromAi: true');
+    const { collection, extractedSecrets } = parseCollectionFile(yamlText);
+    expect(collection.variables?.[0]).toMatchObject({ value: '12345', hideFromAi: true });
+    expect(collection.environments?.[0].variables[0]).toMatchObject({ value: 'eu', hideFromAi: true });
+    expect(collection.items[0]).toMatchObject({ headers: [{ value: 'acme', hideFromAi: true }] });
+    expect(extractedSecrets).toEqual([]);
+  });
 });

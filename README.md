@@ -16,6 +16,7 @@
 - **Single-File YAML Collections (`.awjc` & `.awj`):** Save each collection—including nested folders, requests, auth profiles, and environments—locally in a clean, human-readable `.awjc` YAML file (with full JSON compatibility). Easy to share and Git-friendly.
 - **Click-to-Open OS Integration:** Double-click any `.awjc` or `.awj` collection file in macOS Finder, Windows Explorer (or via the right-click *"Open with AwapiLasso"* context menu), or Linux file manager to open it directly in AwapiLasso.
 - **Environments, `{{Variables}}` & Secrets:** Pass `{{baseUrl}}`, `{{token}}`, `{{userId}}`, and dynamic variables (`{{$uuid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`) into URLs, query/path parameters, headers, auth settings, request bodies, and GraphQL queries. Secret variables (passwords, API keys, client secrets, tokens) are protected in the OS Keychain (`safeStorage`) or a gitignored local sidecar—never leaked in plaintext inside `.awjc` files.
+- **Built-in AI Assistant (bring your own key):** A chat panel docked beside your requests that can explain errors, write GraphQL queries, and read or edit requests, environments, and collections with your approval. Use your own OpenAI, Anthropic (Claude), or OpenAI-compatible (Ollama, OpenRouter, …) key. Your key is kept in the OS Keychain, and **auth and secrets are never visible to the assistant**. See [AI Assistant](#-ai-assistant-bring-your-own-key).
 - **Built-in OAuth 2.0 Token Manager:** Acquire, inspect (with decoded JWT preview), cache, and auto-refresh tokens from OAuth 2.0 endpoints using **Password (`password`)**, **Client Credentials (`client_credentials`)**, **Authorization Code (`authorization_code` + PKCE)**, and **Refresh Token (`refresh_token`)** flows.
 
 ---
@@ -34,10 +35,48 @@
 | **Response Inspector** | Status, timing breakdown, pretty/raw/preview views, JSONPath filter, response diff, pin & copy. |
 | **Captures & Assertions** | Extract values from responses into variables to chain requests, and verify status, time, headers, and JSONPath. |
 | **Collection Runner** | Run a collection or folder sequentially with pass/fail results. |
+| **AI Assistant** | Right-docked chat (Cmd/Ctrl+Shift+A) with your own OpenAI, Claude, or OpenAI-compatible key. Explains errors, writes GraphQL, and reads/edits requests, environments, and collections with approval. Auth and secrets are hidden from the AI. |
 | **Import & Code Generation** | Import cURL, OpenAPI, Swagger, and Postman; generate code snippets from any request. |
 | **Request History** | Browse past requests and restore them in one click. |
 
 See the full list in [**Features & Roadmap (`docs/features.md`)**](docs/features.md).
+
+---
+
+## 🤖 AI Assistant (bring your own key)
+
+AwapiLasso has an optional AI chat panel. Toggle it with the ✨ toolbar button or **Cmd/Ctrl+Shift+A**. It does nothing until you add your own API key, and you can use a local model so nothing leaves your machine.
+
+### Setup
+
+1. Open the panel and click **Set up AI** (or the gear icon).
+2. Choose a provider: **OpenAI**, **Anthropic (Claude)**, or **OpenAI-compatible** (Ollama, LM Studio, OpenRouter, Azure OpenAI, Groq, …; the key is optional for local servers).
+3. Enter a model name and your API key, then click **Test connection**.
+
+### What it can do
+
+- **Explain errors:** "Why did this return a 500?" It reads the last response (status, headers, body, timing).
+- **GraphQL help:** describe the data you want, or paste sample output, and get a query.
+- **Read your workspace:** requests (URL, params, headers, body, captures, assertions), responses, environments and collection variables, and the collection tree.
+- **Edit your workspace:** change a request, add a request to a collection or folder, add or update environment variables.
+- **Send requests:** "Send it and tell me what's wrong."
+
+Edits and sends are **proposals**. You see an Apply / Decline card first, and applied edits stay unsaved until you save the collection. Three preferences in the AI settings let you relax the prompts for sending requests and applying edits, or stop sharing environment values (names only).
+
+### 🔒 Security & privacy
+
+- **API keys are stored in the OS Keychain** (Electron `safeStorage`: macOS Keychain, Windows DPAPI, Linux Secret Service). They are **write-only** from the UI: the app can save, replace, remove, or check for a key, but it can never read one back into the interface. Keys are never written to `.awjc` files, Git, or the plain settings file. If secure storage is unavailable, AwapiLasso refuses to save the key rather than storing it unencrypted.
+- **All AI calls run in the Electron main process**, directly from your machine to the provider you chose. There is no AwapiLasso server in between.
+- **Auth is never visible to the AI.** Bearer tokens, Basic/Digest passwords, API keys, OAuth 2.0 settings and tokens, AWS keys, auth profiles, and collection/folder auth are never sent. The AI sees only the auth *type* (for example `bearer`) and has no tool to read or change auth.
+- **Secrets are never visible to the AI.** Variables marked `secret`, and variables, headers, or query parameters with credential-like names (`token`, `secret`, `password`, `api_key`, `Authorization`, `Cookie`, …), show as `[REDACTED]`. The AI can only write `{{variable}}` references into those fields, cannot set secret values, and can never overwrite a hidden value.
+- **Responses are scrubbed.** Sent request headers, cookie values, bearer tokens, JWTs, secret-looking JSON fields, and any value known to be secret are removed from what the AI reads, and tool results are scrubbed a second time in the main process.
+- **You stay in control.** The AI can only use a fixed set of tools. Edits and sends need your approval by default, and everything it changes is an unsaved edit you can review or discard.
+- **Limits of redaction:** scrubbing of free text (request and response bodies) is best effort. A response that echoes a credential in an unusual format could still reach the provider. When you chat, the active request and response go to the provider you picked, so use a local OpenAI-compatible model (such as Ollama) for sensitive APIs, and treat your provider's data policy as applying to what you share.
+- **Untrusted content:** response bodies are treated as data, not instructions, and the AI is told never to follow instructions found in them.
+
+On macOS, saving an AI key may trigger the "AwapiLasso Safe Storage" keychain prompt explained in the installation notes below; it does not expose any other keychain items.
+
+Full details: [**AI Assistant (`docs/ai-assistant.md`)**](docs/ai-assistant.md).
 
 ---
 
@@ -127,6 +166,7 @@ just release 0.1.1 publish
 
 - 📋 [**Product & Technical Requirements (`docs/requirements.md`)**](docs/requirements.md) — Complete functional & non-functional requirements, architecture, and security model.
 - 📄 [**`.awjc` / `.awj` Collection File Format Spec (`docs/file-format-spec.md`)**](docs/file-format-spec.md) — Annotated YAML schema, OAuth 2.0 & environment configurations, secret handling, and OS file associations.
+- 💬 [**AI Assistant (`docs/ai-assistant.md`)**](docs/ai-assistant.md) — Setup, what the in-app assistant can access, approvals, and the security and privacy model (keys, auth, secrets).
 - 🤖 [**AI / LLM Authoring Guide (`docs/ai-authoring-guide.md`)**](docs/ai-authoring-guide.md) — Point an AI agent here to generate `.awjc` collections (REST & GraphQL) with correct structure and no plaintext secrets.
 - 🗺️ [**Features & Roadmap (`docs/features.md`)**](docs/features.md) — Full feature breakdown of what AwapiLasso does and its planned roadmap.
 - 🚀 [**Release, Packaging & CI/CD Process (`docs/release-process.md`)**](docs/release-process.md) — GitHub Actions workflows, Windows/macOS/Linux installer configurations, and `justfile` release automation.

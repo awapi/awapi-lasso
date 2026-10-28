@@ -175,6 +175,7 @@ function stripKeyValueList(entries: KeyValueEntry[] | undefined): KeyValueEntry[
       key: entry.key,
       ...(entry.secret ? {} : entry.value !== undefined ? { value: entry.value } : {}),
       ...(entry.secret ? { secret: true } : {}),
+      ...(entry.hideFromAi ? { hideFromAi: true } : {}),
       enabled: entry.enabled,
       ...(entry.description !== undefined ? { description: entry.description } : {}),
     };
@@ -198,6 +199,7 @@ function stripVariablesList(entries: VariableEntry[] | undefined): VariableEntry
     key: entry.key,
     ...(entry.secret ? {} : entry.value !== undefined ? { value: entry.value } : {}),
     ...(entry.secret ? { secret: true } : {}),
+    ...(entry.hideFromAi ? { hideFromAi: true } : {}),
     enabled: entry.enabled,
     ...(entry.description !== undefined ? { description: entry.description } : {}),
   }));

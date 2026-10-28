@@ -1,0 +1,496 @@
+import type {
+  AwjcCollection,
+  CollectionTreeItem,
+  FolderItem,
+  RequestItem,
+  VariableEntry,
+} from '../../shared/collectionSchema';
+import type { AiToolCall, AiToolResult } from '../../shared/aiTypes';
+import type { HttpResponseResult } from '../../shared/httpTypes';
+import { redactText, redactUrl } from '../../shared/aiContext';
+import {
+  applyRequestChanges,
+  applyVariableChanges,
+  buildRequestFromSpec,
+  changedHostCaptures,
+  changedUrlVariables,
+  changesUrlOrigin,
+  collectionUrlOrigins,
+  urlOrigin,
+  hostVariableNames,
+  describeRequestChanges,
+  describeVariableChanges,
+  type AiFieldChange,
+  describeTreeForAi,
+  sanitizeRequestForAi,
+  sanitizeResponseForAi,
+  sanitizeVariablesForAi,
+} from '../../shared/aiSanitize';
+import { getAiTool } from '../../shared/aiTools';
+import { describeSchemaForAi, validateGraphqlForAi } from '../../shared/aiGraphql';
+import type { AiGraphqlSchema, AiGraphqlSchemaLoadResult } from './aiGraphqlSchema';
+
+export interface AiToolTab {
+  id: string;
+  collectionPath: string | null;
+  request: RequestItem;
+  isDirty?: boolean;
+}
+
+export interface AiToolCollectionEntry {
+  filePath: string;
+  collection: AwjcCollection;
+}
+
+/** The slice of app state and actions the assistant's tools may use. Auth and secret stores are not exposed. */
+export interface AiToolWorkspace {
+  getCollections: () => AiToolCollectionEntry[];
+  getActiveCollectionPath: () => string | null;
+  getTabs: () => AiToolTab[];
+  getActiveTabId: () => string | null;
+  getResponse: (tabId: string) => HttpResponseResult | null;
+  /** Schema loaded by the GraphQL workspace of the active request, if any. */
+  getGraphqlSchema: () => AiGraphqlSchema | null;
+  /** Discovers the active GraphQL request's schema; null when no GraphQL workspace is open. */
+  loadGraphqlSchema?: () => Promise<AiGraphqlSchemaLoadResult | null>;
+  /** Plaintext secret values currently known to the app; used only to scrub tool output. */
+  getSecretValues: () => string[];
+  /** Replaces a request (open tab and/or collection tree item) and marks it unsaved. */
+  updateRequest: (requestId: string, next: RequestItem) => void;
+  updateCollection: (filePath: string, updater: (c: AwjcCollection) => AwjcCollection) => void;
+  /** Inserts a request into the collection tree and opens it in a tab. */
+  addRequest: (filePath: string, parentFolderId: string | undefined, request: RequestItem) => void;
+  /** Removes a request from the tree and closes its tabs (used to undo create_request). */
+  removeRequest?: (filePath: string, requestId: string) => void;
+  openRequest: (requestId: string) => boolean;
+  /** Sends the active tab's request exactly as the Send button would. */
+  sendActiveRequest: () => Promise<HttpResponseResult | null>;
+  /**
+   * `scheme://host[:port]` the request would be sent to, resolved with the variables a send would use
+   * (null when it can't be resolved). Used to confirm hosts before the assistant sends.
+   */
+  resolveRequestOrigin?: (request: RequestItem) => string | null;
+}
+
+export interface AiApprovalRequest {
+  tool: string;
+  risk: 'write' | 'run';
+  title: string;
+  lines: string[];
+  /** Why this change is risky. Set for changes that could redirect requests; always asks, even with auto-apply. */
+  warning?: string;
+  /** Before/after values for the fields this edit changes (hidden values stay masked). */
+  changes?: AiFieldChange[];
+}
+
+/** An applied assistant edit that can be reverted from the chat panel. */
+export interface AiAppliedEdit {
+  tool: string;
+  title: string;
+  undo: () => void;
+}
+
+export interface AiToolHost {
+  workspace: AiToolWorkspace;
+  requestApproval: (request: AiApprovalRequest) => Promise<boolean>;
+  /** Called after a write is applied, with a way to revert it. */
+  onApplied?: (edit: AiAppliedEdit) => void;
+  /**
+   * Hosts the user has approved the assistant sending to in this chat. The first send to any other host
+   * always asks, even when sends don't need confirmation. Without it, every send asks.
+   */
+  approvedSendOrigins?: Set<string>;
+  getApprovalPolicy: () => Promise<{
+    autoApplyEdits: boolean;
+    confirmBeforeRun: boolean;
+    /** When false, environment variable values are withheld from the assistant. Defaults to true. */
+    shareEnvironmentValues?: boolean;
+  }>;
+}
+
+const ok = (value: unknown): AiToolResult => ({ ok: true, content: JSON.stringify(value) });
+const fail = (message: string): AiToolResult => ({ ok: false, content: message });
+
+function str(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+function findInTree(items: CollectionTreeItem[], id: string): CollectionTreeItem | undefined {
+  for (const item of items) {
+    if (item.id === id) return item;
+    if (item.kind === 'folder') {
+      const found = findInTree(item.items, id);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function resolveCollection(host: AiToolHost, id: unknown): AiToolCollectionEntry | string {
+  const ws = host.workspace;
+  const collections = ws.getCollections();
+  const wanted = str(id);
+  const entry = wanted
+    ? collections.find(c => c.collection.metadata.id === wanted)
+    : collections.find(c => c.filePath === ws.getActiveCollectionPath());
+  if (entry) return entry;
+  return wanted
+    ? `No collection with id "${wanted}". Use get_workspace_overview to list collections.`
+    : 'No collection is open.';
+}
+
+interface RequestLocation {
+  request: RequestItem;
+  tab?: AiToolTab;
+  collectionPath: string | null;
+}
+
+function resolveRequest(host: AiToolHost, requestId: unknown): RequestLocation | string {
+  const ws = host.workspace;
+  const wanted = str(requestId);
+  const tabs = ws.getTabs();
+  if (!wanted) {
+    const tab = tabs.find(t => t.id === ws.getActiveTabId());
+    return tab
+      ? { request: tab.request, tab, collectionPath: tab.collectionPath }
+      : 'There is no active request tab.';
+  }
+  const tab = tabs.find(t => t.request.id === wanted);
+  if (tab) return { request: tab.request, tab, collectionPath: tab.collectionPath };
+  for (const entry of ws.getCollections()) {
+    const item = findInTree(entry.collection.items, wanted);
+    if (item?.kind === 'request') return { request: item, collectionPath: entry.filePath };
+  }
+  return `No request with id "${wanted}". Use list_collection_items to find ids.`;
+}
+
+async function approve(host: AiToolHost, request: AiApprovalRequest): Promise<boolean> {
+  if (request.warning) return host.requestApproval(request);
+  const policy = await host.getApprovalPolicy();
+  if (request.risk === 'write' && policy.autoApplyEdits) return true;
+  if (request.risk === 'run' && !policy.confirmBeforeRun) return true;
+  return host.requestApproval(request);
+}
+
+const NO_SCHEMA =
+  'No GraphQL schema is loaded. Open the GraphQL request (open_request) and call load_graphql_schema, or ask the user to load a schema file in the GraphQL tab.';
+
+const NEW_HOST_WARNING =
+  'This request uses a host no other request in the collection uses. It inherits the collection auth and can use your variables, so check it is a server you trust; this always asks, even when edits are applied automatically.';
+
+const HOST_CHANGE_WARNING =
+  'This points the request at a different host. Check it is a server you trust before applying; this always asks, even when edits are applied automatically.';
+
+function captureWarning(variables: string[]): string {
+  return `Captures response values into ${variables.join(', ')}, which decide${variables.length > 1 ? '' : 's'} where requests are sent. A response could then redirect later requests to another host. This always asks, even when edits are applied automatically.`;
+}
+
+/** Joins the warnings that apply to one approval; undefined when there are none. */
+function warningFor(...warnings: Array<string | false | undefined>): { warning?: string } {
+  const present = warnings.filter((w): w is string => Boolean(w));
+  return present.length ? { warning: present.join(' ') } : {};
+}
+
+function collectionForPath(host: AiToolHost, filePath: string | null): AwjcCollection | undefined {
+  return host.workspace.getCollections().find(c => c.filePath === filePath)?.collection;
+}
+
+const DECLINED = 'The user declined this action. Do not retry it unchanged; ask what they would like instead.';
+
+/** Validates, previews and (after approval) applies request edits; shared by update_request and update_graphql_operation. */
+async function editRequest(
+  call: AiToolCall,
+  host: AiToolHost,
+  requestId: unknown,
+  changes: unknown,
+  secrets: readonly string[],
+): Promise<AiToolResult> {
+  const ws = host.workspace;
+  const found = resolveRequest(host, requestId);
+  if (typeof found === 'string') return fail(found);
+  const applied = applyRequestChanges(found.request, changes);
+  if (!applied.ok) return fail(applied.error);
+  const title = `Edit request "${found.request.name}"`;
+  const owner = collectionForPath(host, found.collectionPath);
+  const riskyCaptures = changedHostCaptures(
+    found.request.captures,
+    applied.value.captures,
+    owner ? hostVariableNames(owner) : new Set(),
+  );
+  const fieldChanges = describeRequestChanges(found.request, applied.value, secrets);
+  const approved = await approve(host, {
+    tool: call.name,
+    risk: 'write',
+    title,
+    lines: applied.summary,
+    changes: fieldChanges,
+    ...warningFor(
+      changesUrlOrigin(found.request.url, applied.value.url) && HOST_CHANGE_WARNING,
+      riskyCaptures.length > 0 && captureWarning(riskyCaptures),
+    ),
+  });
+  if (!approved) return fail(DECLINED);
+  ws.updateRequest(found.request.id, applied.value);
+  const previous = found.request;
+  host.onApplied?.({ tool: call.name, title, undo: () => ws.updateRequest(previous.id, previous) });
+  return ok({
+    updated: true,
+    changed: fieldChanges.map(c => c.field),
+    request: sanitizeRequestForAi(applied.value, secrets),
+  });
+}
+
+async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult> {
+  const ws = host.workspace;
+  const args = call.arguments;
+  const secrets = ws.getSecretValues();
+
+  switch (call.name) {
+    case 'get_workspace_overview': {
+      const activeTabId = ws.getActiveTabId();
+      return ok({
+        activeCollectionId:
+          ws.getCollections().find(c => c.filePath === ws.getActiveCollectionPath())?.collection.metadata.id ?? null,
+        collections: ws.getCollections().map(({ collection }) => ({
+          id: collection.metadata.id,
+          name: collection.metadata.name,
+          environments: (collection.environments ?? []).map(e => e.name),
+          activeEnvironment: collection.activeEnvironment ?? null,
+        })),
+        tabs: ws.getTabs().map(t => ({
+          requestId: t.request.id,
+          name: t.request.name,
+          method: t.request.method,
+          url: redactUrl(t.request.url, secrets),
+          unsavedChanges: Boolean(t.isDirty),
+          active: t.id === activeTabId,
+        })),
+      });
+    }
+
+    case 'get_request': {
+      const found = resolveRequest(host, args.requestId);
+      if (typeof found === 'string') return fail(found);
+      return ok({ ...sanitizeRequestForAi(found.request, secrets), unsavedChanges: Boolean(found.tab?.isDirty) });
+    }
+
+    case 'get_response': {
+      const tabId = ws.getActiveTabId();
+      const response = tabId ? ws.getResponse(tabId) : null;
+      if (!response) return ok({ message: 'The active request has no response yet. Use send_request or ask the user to send it.' });
+      return ok(
+        sanitizeResponseForAi(response, secrets, {
+          offset: typeof args.offset === 'number' ? args.offset : undefined,
+          maxChars: typeof args.maxChars === 'number' ? args.maxChars : undefined,
+        }),
+      );
+    }
+
+    case 'list_environments': {
+      const entry = resolveCollection(host, args.collectionId);
+      if (typeof entry === 'string') return fail(entry);
+      const { collection } = entry;
+      const hideAllValues = (await host.getApprovalPolicy()).shareEnvironmentValues === false;
+      return ok({
+        collectionId: collection.metadata.id,
+        activeEnvironment: collection.activeEnvironment ?? null,
+        ...(hideAllValues ? { valuesHidden: 'The user chose not to share environment values; only names are available.' } : {}),
+        environments: (collection.environments ?? []).map(e => ({
+          name: e.name,
+          variables: sanitizeVariablesForAi(e.variables, secrets, { hideAllValues }),
+        })),
+        collectionVariables: sanitizeVariablesForAi(collection.variables, secrets, { hideAllValues }),
+      });
+    }
+
+    case 'list_collection_items': {
+      const entry = resolveCollection(host, args.collectionId);
+      if (typeof entry === 'string') return fail(entry);
+      return ok({
+        collectionId: entry.collection.metadata.id,
+        name: entry.collection.metadata.name,
+        ...describeTreeForAi(entry.collection.items, secrets),
+      });
+    }
+
+    case 'open_request': {
+      const id = str(args.requestId);
+      if (!id) return fail('requestId is required.');
+      const found = resolveRequest(host, id);
+      if (typeof found === 'string') return fail(found);
+      if (!ws.openRequest(id)) return fail('Could not open that request.');
+      return ok({ opened: true, request: sanitizeRequestForAi(found.request, secrets) });
+    }
+
+    case 'get_graphql_schema': {
+      const schema = ws.getGraphqlSchema();
+      if (!schema) return fail(NO_SCHEMA);
+      const described = describeSchemaForAi(schema.metadata, {
+        typeName: str(args.typeName),
+        search: str(args.search),
+      });
+      return described.ok ? ok(described.value) : fail(described.error);
+    }
+
+    case 'validate_graphql_query': {
+      const query = typeof args.query === 'string' ? args.query : '';
+      if (query.trim() === '') return fail('query is required.');
+      const schema = ws.getGraphqlSchema();
+      if (!schema) return fail(NO_SCHEMA);
+      return ok(
+        validateGraphqlForAi(schema.introspection, query, typeof args.variables === 'string' ? args.variables : undefined),
+      );
+    }
+
+    case 'load_graphql_schema': {
+      const tab = ws.getTabs().find(t => t.id === ws.getActiveTabId());
+      if (tab?.request.protocol !== 'graphql') {
+        return fail('The active tab is not a GraphQL request. Use open_request to open one first.');
+      }
+      if (!ws.loadGraphqlSchema) return fail('Schema discovery is not available here; ask the user to load it in the GraphQL tab.');
+      const approved = await approve(host, {
+        tool: call.name,
+        risk: 'run',
+        title: `Load GraphQL schema from ${redactUrl(tab.request.url, secrets)}`,
+        lines: [
+          "Sends an introspection query to the GraphQL server with this request's auth, falling back to its local schema file.",
+        ],
+      });
+      if (!approved) return fail(DECLINED);
+      const loaded = await ws.loadGraphqlSchema();
+      if (!loaded) return fail('The GraphQL tab is not open yet. Try again in a moment.');
+      if (!loaded.ok) return fail(`Could not load the schema: ${redactText(loaded.error, secrets)}`);
+      const described = describeSchemaForAi(loaded.schema.metadata, {});
+      return described.ok ? ok({ loaded: true, schema: described.value }) : fail(described.error);
+    }
+
+    case 'update_request':
+      return editRequest(call, host, args.requestId, args.changes, secrets);
+
+    case 'update_graphql_operation': {
+      const graphql: Record<string, unknown> = {};
+      for (const f of ['query', 'variables', 'operationName'] as const) {
+        if (args[f] !== undefined) graphql[f] = args[f];
+      }
+      if (Object.keys(graphql).length === 0) return fail('Pass at least one of query, variables or operationName.');
+      if (typeof graphql.query === 'string' && graphql.query.trim() === '') return fail('query must not be empty.');
+      return editRequest(call, host, args.requestId, { graphql }, secrets);
+    }
+
+    case 'create_request': {
+      const entry = resolveCollection(host, args.collectionId);
+      if (typeof entry === 'string') return fail(entry);
+      const folderId = str(args.folderId);
+      if (folderId) {
+        const folder = findInTree(entry.collection.items, folderId);
+        if (folder?.kind !== 'folder') return fail(`No folder with id "${folderId}" in this collection.`);
+      }
+      const built = buildRequestFromSpec(args.protocol, args.request);
+      if (!built.ok) return fail(built.error);
+      const folderName = folderId ? (findInTree(entry.collection.items, folderId) as FolderItem).name : null;
+      const title = `Add request to "${entry.collection.metadata.name}"${folderName ? ` / ${folderName}` : ''}`;
+      const riskyCaptures = changedHostCaptures(undefined, built.value.captures, hostVariableNames(entry.collection));
+      const approved = await approve(host, {
+        tool: call.name,
+        risk: 'write',
+        title,
+        lines: built.summary,
+        ...warningFor(
+          !collectionUrlOrigins(entry.collection).has(urlOrigin(built.value.url)) && NEW_HOST_WARNING,
+          riskyCaptures.length > 0 && captureWarning(riskyCaptures),
+        ),
+      });
+      if (!approved) return fail(DECLINED);
+      ws.addRequest(entry.filePath, folderId, built.value);
+      const { removeRequest } = ws;
+      if (removeRequest) {
+        host.onApplied?.({
+          tool: call.name,
+          title: `Add request "${built.value.name}"`,
+          undo: () => removeRequest(entry.filePath, built.value.id),
+        });
+      }
+      return ok({ created: true, request: sanitizeRequestForAi(built.value, secrets) });
+    }
+
+    case 'set_environment_variables': {
+      const entry = resolveCollection(host, args.collectionId);
+      if (typeof entry === 'string') return fail(entry);
+      const { collection } = entry;
+      const target = str(args.environment) ?? collection.activeEnvironment;
+      if (!target) return fail('No environment specified and none is active.');
+      const isCollectionScope = target === 'collection';
+      const env = isCollectionScope ? undefined : (collection.environments ?? []).find(e => e.name === target);
+      if (!isCollectionScope && !env) return fail(`No environment named "${target}".`);
+
+      const applied = applyVariableChanges(isCollectionScope ? collection.variables : env?.variables, args.variables);
+      if (!applied.ok) return fail(applied.error);
+      const previousVariables = isCollectionScope ? collection.variables : env?.variables;
+      const urlVariables = changedUrlVariables(previousVariables, applied.value, hostVariableNames(collection));
+      const title = isCollectionScope ? 'Edit collection variables' : `Edit environment "${target}"`;
+      const approved = await approve(host, {
+        tool: call.name,
+        risk: 'write',
+        title,
+        lines: applied.summary,
+        changes: describeVariableChanges(previousVariables, applied.value, secrets),
+        ...(urlVariables.length
+          ? {
+              warning: `Changes URL variable${urlVariables.length > 1 ? 's' : ''} ${urlVariables.join(', ')}, which can send requests to a different host. This always asks, even when edits are applied automatically.`,
+            }
+          : {}),
+      });
+      if (!approved) return fail(DECLINED);
+      const setVariables = (variables: VariableEntry[] | undefined) =>
+        ws.updateCollection(entry.filePath, c =>
+          isCollectionScope
+            ? { ...c, variables }
+            : {
+                ...c,
+                environments: (c.environments ?? []).map(e => (e.name === target ? { ...e, variables: variables ?? [] } : e)),
+              },
+        );
+      setVariables(applied.value);
+      host.onApplied?.({ tool: call.name, title, undo: () => setVariables(previousVariables) });
+      return ok({ updated: true, variables: sanitizeVariablesForAi(applied.value, secrets) });
+    }
+
+    case 'send_request': {
+      const tabId = ws.getActiveTabId();
+      const tab = ws.getTabs().find(t => t.id === tabId);
+      if (!tab) return fail('There is no active request tab. Use open_request first.');
+      const origin = ws.resolveRequestOrigin?.(tab.request) ?? null;
+      const approvedOrigins = host.approvedSendOrigins;
+      const firstToHost = !origin || !approvedOrigins?.has(origin);
+      const approved = await approve(host, {
+        tool: call.name,
+        risk: 'run',
+        title: `Send ${tab.request.method} ${redactUrl(tab.request.url, secrets)}${origin ? ` → ${origin}` : ''}`,
+        lines: ['This sends a real network request and may change data on the server.'],
+        ...warningFor(
+          firstToHost &&
+            (origin
+              ? `First request from the assistant to ${origin} in this chat. Check it is a server you trust; your auth and variables are sent with it.`
+              : "The request's host could not be worked out from its URL and variables. Check where it goes before sending."),
+        ),
+      });
+      if (!approved) return fail(DECLINED);
+      if (origin) approvedOrigins?.add(origin);
+      const response = await ws.sendActiveRequest();
+      return response ? ok(sanitizeResponseForAi(response, secrets)) : fail('The request could not be sent.');
+    }
+
+    default:
+      return fail(`Unknown tool "${call.name}".`);
+  }
+}
+
+/** Executes one assistant tool call against the workspace. Never throws; failures become error results. */
+export async function executeAiTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult> {
+  if (!getAiTool(call.name)) return fail(`Unknown tool "${call.name}".`);
+  try {
+    return await runTool(call, host);
+  } catch (error) {
+    return fail(`Tool failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}

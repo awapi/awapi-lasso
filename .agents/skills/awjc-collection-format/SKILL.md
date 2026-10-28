@@ -24,6 +24,7 @@ Any change to the collection structure must update the docs in the same change:
 
 ### 2. Never Write Plaintext Secrets into `.awjc`
 - Any variable or auth field marked `secret: true` (such as passwords, API keys, OAuth 2.0 `clientSecret`, and acquired OAuth 2.0 tokens) must have its plaintext `value` stripped before writing the `.awjc` YAML file to disk.
+- `hideFromAi: true` is different: the value **is** saved in the file and is only hidden from the in-app AI assistant. Preserve the flag on save (only when `true`).
 - Persist the actual secret values in `src/main/secretStore.ts` using Electron's `safeStorage` (OS Keychain) keyed by `(collectionId, scopeId, key)` or in a gitignored `<collection>.secrets.awjc` local sidecar file.
 
 ### 3. `{{variable}}` Interpolation Precedence

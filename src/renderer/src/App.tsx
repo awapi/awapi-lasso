@@ -41,6 +41,9 @@ import { GitSourceControlModal } from './components/GitSourceControlModal';
 import { SaveRequestModal } from './components/SaveRequestModal';
 import { SettingsModal } from './components/SettingsModal';
 import { TerminalPanel } from './components/TerminalPanel';
+import { AiChatPanel } from './components/AiChatPanel';
+import { useAiWorkspace } from './useAiWorkspace';
+import { buildAiChatContext, collectWorkspaceSecretValues } from './aiContextBuilder';
 import { ResponseInspector } from './components/ResponseInspector';
 import { curlToRequestItem } from '../../shared/curlParser';
 import type { GitCollectionStatus } from '../../shared/gitTypes';
@@ -174,6 +177,7 @@ const WorkspaceShell: React.FC = () => {
   const [cliError, setCliError] = useState<string | null>(null);
   const [splitLayout, setSplitLayout] = useState<'vertical' | 'horizontal'>('vertical');
   const [settingsModalOpen, setSettingsModalOpen] = useState<boolean>(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState<boolean>(false);
   const [envModalOpen, setEnvModalOpen] = useState<boolean>(false);
   const [envModalTab, setEnvModalTab] = useState<EnvironmentModalTab>('environments');
   const [codeSnippetModalOpen, setCodeSnippetModalOpen] = useState<boolean>(false);
@@ -555,6 +559,20 @@ const WorkspaceShell: React.FC = () => {
       capturedVariables: capturedVars,
     };
   }, [activeCollection, capturedVars]);
+
+  const getAiContext = useCallback(
+    () =>
+      buildAiChatContext({
+        request: activeTab?.request ?? null,
+        response: activeTab ? (responsesByTab[activeTab.id] ?? null) : null,
+        environment: (activeCollection.environments ?? []).find(
+          e => e.name === activeCollection.activeEnvironment,
+        ),
+        collectionVariables: activeCollection.variables ?? [],
+        extraSecretValues: collectWorkspaceSecretValues({ collections, tabs, capturedVars }),
+      }),
+    [activeTab, responsesByTab, activeCollection, collections, tabs, capturedVars],
+  );
 
   const updateActiveRequest = (updater: (req: RequestItem) => RequestItem) => {
     if (!activeTab) return;
@@ -1156,8 +1174,8 @@ const WorkspaceShell: React.FC = () => {
     setActiveTabId(newTabId);
   };
 
-  const handleSendRequest = async () => {
-    if (!window.electronAPI?.sendHttpRequest || !activeTab) return;
+  const handleSendRequest = async (): Promise<HttpResponseResult | null> => {
+    if (!window.electronAPI?.sendHttpRequest || !activeTab) return null;
     const reqId = generateAwjcId('inflight');
     setInFlightRequestId(reqId);
 
@@ -1228,6 +1246,7 @@ const WorkspaceShell: React.FC = () => {
         },
         ...prev,
       ]);
+      return response ?? null;
     } finally {
       setInFlightRequestId(null);
     }
@@ -1239,6 +1258,11 @@ const WorkspaceShell: React.FC = () => {
     }
     setInFlightRequestId(null);
   };
+
+  const aiWorkspace = useAiWorkspace(
+    { collections, tabs, activeTabId, activeCollectionPath, responsesByTab, capturedVars },
+    { setCollections, setTabs, setActiveTabId, setActiveCollectionPath, sendRequest: handleSendRequest },
+  );
 
   return (
     <div
@@ -1320,6 +1344,8 @@ const WorkspaceShell: React.FC = () => {
         onToggleSplitLayout={() =>
           setSplitLayout(prev => (prev === 'vertical' ? 'horizontal' : 'vertical'))
         }
+        aiPanelOpen={aiPanelOpen}
+        onToggleAiPanel={() => setAiPanelOpen(prev => !prev)}
       />
 
       {/* Main Split Workspace: Left Sidebar <-> Right Request/Response Area */}
@@ -1926,6 +1952,12 @@ const WorkspaceShell: React.FC = () => {
               </div>
             </div>
           }
+        />
+        <AiChatPanel
+          open={aiPanelOpen}
+          onClose={() => setAiPanelOpen(false)}
+          getContext={getAiContext}
+          workspace={aiWorkspace}
         />
       </div>
 

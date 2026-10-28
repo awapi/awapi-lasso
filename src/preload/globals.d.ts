@@ -37,6 +37,17 @@ import type {
   PtyExitEvent,
   TerminalChoices,
 } from '../shared/terminal';
+import type {
+  AiKeyStatus,
+  AiListModelsResult,
+  AiProviderId,
+  AiSendRequest,
+  AiSettings,
+  AiTestConnectionResult,
+  AiToolResult,
+  AiTurnEvent,
+} from '../shared/aiTypes';
+import type { AiSetKeyResult } from '../main/ai/aiIpc';
 
 declare global {
   interface Window {
@@ -170,6 +181,23 @@ declare global {
       ptyKill: (id: number) => Promise<void>;
       onPtyData: (callback: (event: PtyDataEvent) => void) => () => void;
       onPtyExit: (callback: (event: PtyExitEvent) => void) => () => void;
+
+      /** AI assistant: non-secret settings (API keys are write-only and never returned). */
+      aiGetSettings: () => Promise<AiSettings>;
+      aiSaveSettings: (partial: Partial<AiSettings>) => Promise<AiSettings>;
+      /** Whether an API key is stored in the OS Keychain for each provider. */
+      aiGetKeyStatuses: () => Promise<AiKeyStatus[]>;
+      aiSetKey: (provider: AiProviderId, apiKey: string) => Promise<AiSetKeyResult>;
+      aiClearKey: (provider: AiProviderId) => Promise<boolean>;
+      aiTestConnection: () => Promise<AiTestConnectionResult>;
+      /** Models offered by the saved provider (best effort, for the settings model field). */
+      aiListModels: () => Promise<AiListModelsResult>;
+      /** Starts a chat turn; streamed output arrives via `onAiEvent` tagged with `request.turnId`. */
+      aiSend: (request: AiSendRequest) => Promise<{ started: boolean }>;
+      aiCancel: (turnId: string) => Promise<boolean>;
+      /** Replies to a streamed `tool-call` event with the sanitized result of running the tool. */
+      aiToolResult: (callId: string, result: AiToolResult) => Promise<boolean>;
+      onAiEvent: (callback: (event: AiTurnEvent) => void) => () => void;
 
       /** Application menu event subscriptions. */
       onMenuNewCollection: (callback: () => void) => () => void;

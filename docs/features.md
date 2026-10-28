@@ -62,6 +62,11 @@ AwapiLasso is designed around a clear philosophy: **deliver a fast, local-first,
 - **No-Code Response Captures:** Extract values from JSON responses (`$.data.access_token`), headers, or cookies directly into environment/collection variables to chain requests effortlessly.
 - **Declarative Assertions:** Verify status codes, response times, headers, and JSONPath expressions with instant pass/fail feedback.
 
+### 6. AI Assistant (Bring Your Own Key)
+- **Chat Panel:** Right-docked panel (Cmd/Ctrl+Shift+A) that explains errors, writes GraphQL queries, and reviews requests, using your own OpenAI, Anthropic (Claude), or OpenAI-compatible (Ollama, OpenRouter, …) key.
+- **Workspace Tools:** Reads requests, responses, environments, and the collection tree; edits requests, creates requests, updates non-secret variables, and sends requests, with an Apply / Decline approval card (relaxable in settings). Edits stay unsaved until you save.
+- **Security by Design:** API keys live in the OS Keychain and are write-only from the UI. Auth and secrets are never visible to the AI; credential-looking headers, params, and variables are hidden and write-protected; responses are scrubbed in the renderer and again in the main process. See [AI Assistant](ai-assistant.md).
+
 ---
 
 ## 🗺️ Phased Implementation Roadmap

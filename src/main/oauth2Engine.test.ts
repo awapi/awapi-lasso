@@ -8,6 +8,8 @@ import {
   getCachedOAuth2Token,
   clearCachedOAuth2Token,
   clearAllMemoryOAuth2Tokens,
+  cacheOAuth2Token,
+  listCachedOAuth2TokenValues,
   resolveOAuth2AccessTokenForRequest,
 } from './oauth2Engine';
 import type { SecretStoreDeps } from './secretStore';
@@ -350,5 +352,22 @@ describe('oauth2Engine', () => {
     );
     expect(explicitRefresh.ok).toBe(true);
     expect(lastTokenRequestParams.refresh_token).toBe('custom_rt_55');
+  });
+});
+
+describe('listCachedOAuth2TokenValues', () => {
+  it('lists access, refresh and id tokens held in memory', () => {
+    clearAllMemoryOAuth2Tokens();
+    expect(listCachedOAuth2TokenValues()).toEqual([]);
+    cacheOAuth2Token(
+      { collectionId: 'c', profileOrRequestId: 'p' },
+      { accessToken: 'at-1', refreshToken: 'rt-1', idToken: 'id-1', tokenType: 'Bearer', acquiredAt: 'now', rawResponse: {} },
+    );
+    cacheOAuth2Token(
+      { collectionId: 'c', profileOrRequestId: 'q' },
+      { accessToken: 'at-2', tokenType: 'Bearer', acquiredAt: 'now', rawResponse: {} },
+    );
+    expect(listCachedOAuth2TokenValues().sort()).toEqual(['at-1', 'at-2', 'id-1', 'rt-1']);
+    clearAllMemoryOAuth2Tokens();
   });
 });

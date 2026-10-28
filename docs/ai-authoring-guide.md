@@ -222,6 +222,22 @@ OAuth 2.0 `grantType`: `client_credentials`, `password` (adds `username`/`passwo
 
 (If a plaintext value is present on a `secret: true` entry, the app moves it to the OS Keychain and strips it on save — but do not rely on that.)
 
+**Private but not secret:** add `hideFromAi: true` to a variable, header, query param or url-encoded body field to keep its value in the file but hidden from the in-app AI assistant (for example account ids or internal hosts). Only emit it when the user asks for it:
+
+```yaml
+- kind: request
+  id: "req_tenant_users"
+  name: "List tenant users"
+  protocol: http
+  method: GET
+  url: "{{baseUrl}}/users"
+  headers:
+    - key: "X-Tenant"
+      value: "acme-internal"
+      enabled: true
+      hideFromAi: true
+```
+
 ## Captures and assertions
 
 Captures save response data into a variable for later requests:

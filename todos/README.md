@@ -16,6 +16,7 @@ This `todos/` folder tracks the implementation work for **AwapiLasso**, organize
 | **Phase 06** | [DONE-06-phase-import-codegen-and-runner.md](./DONE-06-phase-import-codegen-and-runner.md) | Paste-to-import `curl`, OpenAPI 3.x / Swagger 2.0 importer, multi-language code snippet generator, Collection/Folder Runner, and local request history | ✅ Completed |
 | **Phase 07** | [DONE-07-phase-git-integration.md](./DONE-07-phase-git-integration.md) | Built-in Git status indicator, visual YAML diff for `.awjc` files, branch switching, commit, revert/restore, and push/pull (scoped per collection folder) | ✅ Completed |
 | **Phase 08** | [08-phase-mcp-server-analyzer.md](./08-phase-mcp-server-analyzer.md) | **MCP Server Analyzer & Inspector** — Streamable HTTP & HTTP+SSE (plus optional `stdio`) JSON-RPC 2.0 client, capability/tool/resource/prompt discovery, LLM token footprint & spec analyzer, and schema-driven interactive Tool Runner | ⏳ Pending |
+| **Phase 09** | [09-phase-ai-chat-assistant.md](./09-phase-ai-chat-assistant.md) | **AI Chat Assistant** — bring-your-own-key (OpenAI / Anthropic / OpenAI-compatible) with OS Keychain storage, right-docked chat panel, in-process tool calling (GraphQL query generation + validation, error explanation, request edits), secret redaction, optional MCP exposure | 🚧 MVP shipped (chat, keys, providers, redaction); tools & apply-to-request pending |
 
 ---
 

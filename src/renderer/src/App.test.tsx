@@ -88,6 +88,26 @@ describe('App shell', () => {
       copyToClipboard: vi.fn().mockResolvedValue(undefined),
       readClipboardText: vi.fn().mockResolvedValue(''),
       checkForUpdates: vi.fn().mockResolvedValue(undefined),
+      aiGetSettings: vi.fn().mockResolvedValue({
+        provider: 'openai',
+        models: { openai: 'gpt-4o-mini', anthropic: 'claude', 'openai-compatible': 'llama3.1' },
+        baseUrls: { openai: '', anthropic: '', 'openai-compatible': '' },
+        temperature: 0.2,
+        maxTokens: 2048,
+        confirmBeforeRun: true,
+        autoApplyEdits: false,
+        shareEnvironmentValues: true,
+      }),
+      aiSaveSettings: vi.fn().mockImplementation(async s => s),
+      aiGetKeyStatuses: vi.fn().mockResolvedValue([{ provider: 'openai', hasKey: false }]),
+      aiSetKey: vi.fn().mockResolvedValue({ ok: true }),
+      aiClearKey: vi.fn().mockResolvedValue(true),
+      aiTestConnection: vi.fn().mockResolvedValue({ ok: true, message: 'ok' }),
+      aiListModels: vi.fn().mockResolvedValue({ ok: true, models: [] }),
+      aiSend: vi.fn().mockResolvedValue({ started: true }),
+      aiCancel: vi.fn().mockResolvedValue(true),
+      aiToolResult: vi.fn().mockResolvedValue(true),
+      onAiEvent: vi.fn(() => () => {}),
       getGitStatus: vi.fn().mockResolvedValue({
         collectionFilePath: '/Users/me/apis/payments.awjc',
         folderPath: '/Users/me/apis',
@@ -178,6 +198,78 @@ describe('App shell', () => {
     await waitFor(() => {
       expect(screen.getByTestId('cli-status-badge')).toHaveTextContent('awlasso CLI ready');
     });
+  });
+
+  it('toggles the AI assistant panel and passes the active request as chat context', async () => {
+    vi.mocked(window.electronAPI.aiGetKeyStatuses).mockResolvedValue([
+      { provider: 'openai', hasKey: true },
+    ]);
+    render(<App />);
+    const panel = screen.getByTestId('ai-chat-panel');
+    expect(panel).toHaveStyle({ display: 'none' });
+
+    fireEvent.click(screen.getByTestId('toggle-ai-panel-btn'));
+    expect(panel).toHaveStyle({ display: 'flex' });
+
+    const input = await waitFor(() => {
+      const el = screen.getByTestId('ai-input');
+      expect(el).not.toBeDisabled();
+      return el;
+    });
+    fireEvent.change(input, { target: { value: 'hello' } });
+    fireEvent.click(screen.getByTestId('ai-send-btn'));
+    await waitFor(() => expect(window.electronAPI.aiSend).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(window.electronAPI.aiSend).mock.calls[0][0];
+    expect(sent.messages).toEqual([{ role: 'user', content: 'hello' }]);
+    expect(sent.context?.request?.method).toBe('GET');
+
+    fireEvent.click(screen.getByTestId('ai-close-btn'));
+    expect(panel).toHaveStyle({ display: 'none' });
+  });
+
+  it('lets the assistant edit the active request through approved tool calls, without exposing auth', async () => {
+    let emit!: (e: import('../../shared/aiTypes').AiTurnEvent) => void;
+    vi.mocked(window.electronAPI.onAiEvent).mockImplementation(cb => {
+      emit = cb;
+      return () => {};
+    });
+    vi.mocked(window.electronAPI.aiGetKeyStatuses).mockResolvedValue([{ provider: 'openai', hasKey: true }]);
+    render(<App />);
+    fireEvent.click(screen.getByTestId('toggle-ai-panel-btn'));
+    const input = await waitFor(() => {
+      const el = screen.getByTestId('ai-input');
+      expect(el).not.toBeDisabled();
+      return el;
+    });
+    fireEvent.change(input, { target: { value: 'change the url' } });
+    fireEvent.click(screen.getByTestId('ai-send-btn'));
+    await waitFor(() => expect(window.electronAPI.aiSend).toHaveBeenCalled());
+    const { turnId } = vi.mocked(window.electronAPI.aiSend).mock.calls[0][0];
+
+    act(() =>
+      emit({
+        turnId,
+        event: { type: 'tool-call', call: { id: 'k1', name: 'update_request', arguments: { changes: { url: 'http://127.0.0.1:9/changed' } } } },
+      }),
+    );
+    const card = await screen.findByTestId('ai-approval');
+    expect(card).toHaveTextContent('http://127.0.0.1:9/changed');
+    expect(screen.getByTestId('url-input')).not.toHaveValue('http://127.0.0.1:9/changed');
+    fireEvent.click(screen.getByTestId('ai-approve-btn'));
+    await waitFor(() => expect(screen.getByTestId('url-input')).toHaveValue('http://127.0.0.1:9/changed'));
+    await waitFor(() =>
+      expect(window.electronAPI.aiToolResult).toHaveBeenCalledWith('k1', expect.objectContaining({ ok: true })),
+    );
+
+    act(() =>
+      emit({ turnId, event: { type: 'tool-call', call: { id: 'k2', name: 'update_request', arguments: { changes: { auth: { type: 'none' } } } } } }),
+    );
+    await waitFor(() =>
+      expect(window.electronAPI.aiToolResult).toHaveBeenCalledWith('k2', {
+        ok: false,
+        content: expect.stringContaining('Auth cannot be read or changed'),
+      }),
+    );
   });
 
   it('adds a collection when opened via the native dialog button', async () => {

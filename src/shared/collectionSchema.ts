@@ -21,6 +21,8 @@ export interface KeyValueEntry {
   enabled: boolean;
   description?: string;
   secret?: boolean;
+  /** Keeps the value out of the AI assistant's view. Unlike `secret`, the value is still saved in the file. */
+  hideFromAi?: boolean;
 }
 
 export interface QueryParamEntry extends KeyValueEntry {}
@@ -38,6 +40,8 @@ export interface VariableEntry {
   enabled: boolean;
   description?: string;
   secret?: boolean;
+  /** Keeps the value out of the AI assistant's view. Unlike `secret`, the value is still saved in the file. */
+  hideFromAi?: boolean;
 }
 
 export type FormDataFieldType = 'text' | 'file';
