@@ -9,18 +9,23 @@ import {
   type AiTestConnectionResult,
   type AiToolCall,
   type AiToolResult,
+  type AiToolTranscriptMessage,
   type AiTurnEvent,
 } from '../../shared/aiTypes';
 import { AI_TOOLS, AI_TOOL_NAMES } from '../../shared/aiTools';
 import { buildSystemPrompt, redactText, truncateText } from '../../shared/aiContext';
 import type { SecretStoreDeps } from '../secretStore';
 import { loadAiSettings, readAiKey, type AiSettingsFsDeps } from './aiSettingsStore';
-import { getStreamChat, type ProviderRequest, type StreamChat } from './providers';
+import { AiProviderError, getStreamChat, type ProviderRequest, type StreamChat } from './providers';
 
 export const MAX_HISTORY_MESSAGES = 30;
 export const MAX_MESSAGE_CHARS = 60000;
 export const MAX_TOOL_ROUNDS = 8;
 export const MAX_TOOL_RESULT_CHARS = 30000;
+/** Tool exchanges are remembered for this many recent turns, with each result shortened to this size. */
+export const MAX_REMEMBERED_TOOL_TURNS = 3;
+export const MAX_REMEMBERED_TOOL_RESULT_CHARS = 4000;
+const MAX_TRANSCRIPT_MESSAGES = 60;
 /** Tool calls can wait on a user approval, so the timeout is generous. */
 export const TOOL_RESULT_TIMEOUT_MS = 10 * 60 * 1000;
 /** A provider stream that yields nothing for this long is treated as hung. Generous for slow local / reasoning models. */
@@ -81,6 +86,27 @@ export async function* withIdleTimeout<T>(
 
 const activeTurns = new Map<string, AbortController>();
 
+/** provider|baseUrl|model combinations that rejected tool calling; later turns go straight to chat-only. */
+const noToolSupport = new Set<string>();
+
+export const CHAT_ONLY_NOTICE =
+  "(This model doesn't support tool calling, so I can't read or edit your workspace. Answering from the shared context only.)\n\n";
+
+const TOOLS_UNSUPPORTED_PATTERN =
+  /(does ?n[o']t|do not|not|un)\s*support(ed)?\b.{0,60}\b(tools?|tool[ _]?(use|calling|calls|choice)|function[ _]?call(ing|s)?|functions)\b|\b(tools?|tool[ _]?(use|calling|choice)|function[ _]?call(ing|s)?|functions)\b.{0,60}\b(is|are)?\s*(not supported|unsupported)|tool[ _]?choice\b.{0,20}\brequires\b/i;
+
+/** True when a provider rejected the request because the model or server cannot do tool calling. */
+export function isToolsUnsupportedError(error: unknown): boolean {
+  if (!(error instanceof AiProviderError)) return false;
+  if (error.status !== undefined && ![400, 404, 405, 422, 500, 501].includes(error.status)) return false;
+  return TOOLS_UNSUPPORTED_PATTERN.test(error.message);
+}
+
+/** Test helper: forget models remembered as not supporting tools. */
+export function resetToolSupportCache(): void {
+  noToolSupport.clear();
+}
+
 interface PendingToolCall {
   turnId: string;
   resolve: (result: AiToolResult) => void;
@@ -111,6 +137,38 @@ export function resolveAiToolResult(callId: unknown, result: unknown): boolean {
   return true;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Checks a renderer-supplied tool transcript: known tools, every call answered, nothing extra. Invalid → null. */
+export function validateToolTranscript(raw: unknown): AiToolTranscriptMessage[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_TRANSCRIPT_MESSAGES) return null;
+  const out: AiToolTranscriptMessage[] = [];
+  let pending = new Set<string>();
+  for (const m of raw as Array<Record<string, unknown>>) {
+    if (m?.role === 'assistant') {
+      if (pending.size > 0 || !Array.isArray(m.toolCalls) || m.toolCalls.length === 0) return null;
+      const toolCalls: AiToolCall[] = [];
+      for (const c of m.toolCalls as Array<Record<string, unknown>>) {
+        if (typeof c?.id !== 'string' || c.id === '' || typeof c.name !== 'string' || !AI_TOOL_NAMES.has(c.name)) {
+          return null;
+        }
+        toolCalls.push({ id: c.id, name: c.name, arguments: isPlainObject(c.arguments) ? c.arguments : {} });
+      }
+      pending = new Set(toolCalls.map(c => c.id));
+      out.push({ role: 'assistant', content: typeof m.content === 'string' ? m.content : '', toolCalls });
+    } else if (m?.role === 'tool') {
+      if (typeof m.toolCallId !== 'string' || !pending.has(m.toolCallId) || typeof m.content !== 'string') return null;
+      pending.delete(m.toolCallId);
+      out.push({ role: 'tool', toolCallId: m.toolCallId, name: typeof m.name === 'string' ? m.name : '', content: m.content });
+    } else {
+      return null;
+    }
+  }
+  return pending.size === 0 ? out : null;
+}
+
 export function validateMessages(messages: unknown): AiChatMessage[] {
   if (!Array.isArray(messages) || messages.length === 0) {
     throw new Error('No messages to send.');
@@ -120,8 +178,13 @@ export function validateMessages(messages: unknown): AiChatMessage[] {
     if ((m?.role !== 'user' && m?.role !== 'assistant') || typeof m.content !== 'string') {
       throw new Error('Invalid chat message.');
     }
-    if (m.content.trim() === '') continue;
-    cleaned.push({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) });
+    const transcript = m.role === 'assistant' ? validateToolTranscript(m.toolTranscript) : null;
+    if (m.content.trim() === '' && !transcript) continue;
+    cleaned.push({
+      role: m.role,
+      content: m.content.slice(0, MAX_MESSAGE_CHARS),
+      ...(transcript ? { toolTranscript: transcript } : {}),
+    });
   }
   const history = cleaned.slice(-MAX_HISTORY_MESSAGES);
   while (history.length > 0 && history[0].role !== 'user') history.shift();
@@ -129,6 +192,33 @@ export function validateMessages(messages: unknown): AiChatMessage[] {
     throw new Error('The last message must be from the user.');
   }
   return history;
+}
+
+/**
+ * Turns chat history into provider messages, re-inserting remembered tool exchanges for the most recent
+ * turns (scrubbed again and shortened) so the model does not have to re-read what it already saw.
+ */
+export function expandHistory(history: AiChatMessage[], secrets: readonly string[]): AiLlmMessage[] {
+  const assistantIndexes = history.flatMap((m, i) => (m.role === 'assistant' && m.toolTranscript ? [i] : []));
+  const remembered = new Set(assistantIndexes.slice(-MAX_REMEMBERED_TOOL_TURNS));
+  const out: AiLlmMessage[] = [];
+  history.forEach((m, i) => {
+    if (m.role === 'user') {
+      out.push({ role: 'user', content: m.content });
+      return;
+    }
+    if (remembered.has(i) && m.toolTranscript) {
+      for (const t of m.toolTranscript) {
+        out.push(
+          t.role === 'tool'
+            ? { ...t, content: truncateText(redactText(t.content, secrets), MAX_REMEMBERED_TOOL_RESULT_CHARS) }
+            : { role: 'assistant', content: t.content, toolCalls: t.toolCalls },
+        );
+      }
+    }
+    if (m.content.trim() !== '') out.push({ role: 'assistant', content: m.content });
+  });
+  return out;
 }
 
 function readMainSecrets(deps: AiServiceDeps): string[] {
@@ -234,11 +324,30 @@ export async function runAiTurn(request: AiSendRequest, deps: AiServiceDeps): Pr
       throw new Error(`No ${info.label} API key is configured. Add one in AI settings.`);
     }
 
-    const toolsEnabled = request.toolsEnabled === true;
+    const toolKey = `${settings.provider}|${settings.baseUrls[settings.provider]}|${settings.models[settings.provider]}`;
+    const wantsTools = request.toolsEnabled === true;
+    let toolsEnabled = wantsTools && !noToolSupport.has(toolKey);
     const resolve = deps.resolveStreamChat ?? getStreamChat;
-    const system = buildSystemPrompt(request.context && { ...request.context, secretValues: secrets }, toolsEnabled);
-    const messages: AiLlmMessage[] = [...history];
+    const promptContext = request.context && { ...request.context, secretValues: secrets };
+    let system = buildSystemPrompt(promptContext, toolsEnabled);
+    const messages: AiLlmMessage[] = expandHistory(history, secrets);
+    const turnStart = messages.length;
     let emittedText = false;
+    /** Hands this turn's tool exchange to the renderer (results are already scrubbed; no provider internals). */
+    const emitTranscript = () => {
+      const transcript: AiToolTranscriptMessage[] = [];
+      for (const m of messages.slice(turnStart)) {
+        if (m.role === 'tool') {
+          transcript.push(m);
+        } else if (m.role === 'assistant' && m.toolCalls?.length) {
+          // Intermediate text is already part of the visible answer, so it is not repeated here.
+          const toolCalls = m.toolCalls.map(({ id, name, arguments: args }) => ({ id, name, arguments: args }));
+          transcript.push({ role: 'assistant', content: '', toolCalls });
+        }
+      }
+      if (transcript.length > 0) emit({ type: 'tool-transcript', messages: transcript });
+    };
+    if (wantsTools && !toolsEnabled) emit({ type: 'text-delta', text: CHAT_ONLY_NOTICE });
 
     for (let round = 0; ; round++) {
       // Per-round controller so an idle timeout can abort the HTTP stream without cancelling the turn.
@@ -279,17 +388,31 @@ export async function runAiTurn(request: AiSendRequest, deps: AiServiceDeps): Pr
             emit(event);
           }
         }
+      } catch (error) {
+        // Some models/servers reject the `tools` field outright; fall back to chat-only for this model.
+        const nothingStreamed = round === 0 && !roundText && calls.length === 0;
+        if (toolsEnabled && nothingStreamed && !controller.signal.aborted && isToolsUnsupportedError(error)) {
+          noToolSupport.add(toolKey);
+          toolsEnabled = false;
+          system = buildSystemPrompt(promptContext, false);
+          emit({ type: 'text-delta', text: CHAT_ONLY_NOTICE });
+          round = -1;
+          continue;
+        }
+        throw error;
       } finally {
         controller.signal.removeEventListener('abort', forwardAbort);
       }
       if (roundText) emittedText = true;
 
       if (calls.length === 0 || !toolsEnabled) {
+        emitTranscript();
         emit({ type: 'done', stopReason });
         return;
       }
       if (round >= MAX_TOOL_ROUNDS) {
         emit({ type: 'text-delta', text: '\n\n(Stopped: too many tool steps in one turn.)' });
+        emitTranscript();
         emit({ type: 'done', stopReason: 'max_tool_rounds' });
         return;
       }

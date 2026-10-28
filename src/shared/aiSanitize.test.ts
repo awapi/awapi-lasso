@@ -9,6 +9,8 @@ import {
   buildRequestFromSpec,
   changedUrlVariables,
   changesUrlOrigin,
+  describeRequestChanges,
+  describeVariableChanges,
   describeTreeForAi,
   isEntryHiddenFromAi,
   isHiddenValue,
@@ -401,5 +403,46 @@ describe('hideFromAi flag', () => {
     expect(applyVariableChanges(vars, [{ key: 'accountId', value: '999' }]).ok).toBe(false);
     const toggled = applyVariableChanges(vars, [{ key: 'accountId', enabled: false }]);
     expect(toggled.ok && toggled.value[0]).toMatchObject({ value: '12345', hideFromAi: true, enabled: false });
+  });
+});
+
+describe('change previews', () => {
+  it('lists changed request fields with before and after, keeping hidden values masked', () => {
+    const before = request({ url: '{{baseUrl}}/users', body: { mode: 'json', content: '{"a":1}' } });
+    const after = applyRequestChanges(before, {
+      url: '{{baseUrl}}/v2/users',
+      headers: { set: [{ key: 'X-Trace', value: 'def' }, { key: 'Accept', value: 'application/json' }], remove: ['X-Custom'] },
+      body: { mode: 'json', content: '{"a":2}' },
+    });
+    expect(after.ok).toBe(true);
+    const changes = describeRequestChanges(before, (after as { value: RequestItem }).value, [SECRET]);
+    expect(changes).toEqual([
+      { field: 'Url', before: '{{baseUrl}}/users', after: '{{baseUrl}}/v2/users' },
+      { field: 'Header X-Trace', before: 'abc', after: 'def' },
+      { field: 'Header X-Custom', before: REDACTED, after: '' },
+      { field: 'Header Accept', before: '', after: 'application/json' },
+      { field: 'Body', before: '{"a":1}', after: '{"a":2}' },
+    ]);
+    expect(JSON.stringify(changes)).not.toContain('hidden-by-flag');
+    expect(describeRequestChanges(before, before)).toEqual([]);
+  });
+
+  it('describes variable changes without revealing hidden values', () => {
+    const before = [
+      { key: 'region', value: 'eu', enabled: true },
+      { key: 'apiToken', value: 'tok-123456', enabled: true, secret: true },
+    ];
+    const after = [
+      { key: 'region', value: 'us', enabled: true },
+      { key: 'apiToken', value: 'tok-123456', enabled: false, secret: true },
+      { key: 'newVar', value: 'x', enabled: true },
+    ];
+    const changes = describeVariableChanges(before, after);
+    expect(changes).toEqual([
+      { field: 'Variable region', before: 'eu', after: 'us' },
+      { field: 'Variable apiToken', before: '(hidden)', after: '(hidden) (disabled)' },
+      { field: 'Variable newVar', before: '', after: 'x' },
+    ]);
+    expect(JSON.stringify(changes)).not.toContain('tok-123456');
   });
 });

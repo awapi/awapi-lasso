@@ -599,3 +599,89 @@ export function applyVariableChanges(
   }
   return { ok: true, value: result, summary };
 }
+
+// ---------- Change previews ----------
+
+/** One field that an assistant edit changes, for before/after previews. Hidden values stay masked. */
+export interface AiFieldChange {
+  field: string;
+  before: string;
+  after: string;
+}
+
+const PREVIEW_CHARS = 300;
+const preview = (value: string | undefined): string => truncateText(value ?? '', PREVIEW_CHARS);
+
+function entryMap(entries: Array<{ key: string; value?: string; enabled?: boolean }>): Map<string, string> {
+  return new Map(entries.map(e => [e.key, `${e.value ?? ''}${e.enabled === false ? ' (disabled)' : ''}`]));
+}
+
+function diffEntries(
+  label: string,
+  before: Array<{ key: string; value?: string; enabled?: boolean }>,
+  after: Array<{ key: string; value?: string; enabled?: boolean }>,
+  out: AiFieldChange[],
+): void {
+  const a = entryMap(before);
+  const b = entryMap(after);
+  for (const key of new Set([...a.keys(), ...b.keys()])) {
+    if (a.get(key) !== b.get(key)) {
+      out.push({ field: `${label} ${key}`, before: preview(a.get(key)), after: preview(b.get(key)) });
+    }
+  }
+}
+
+/** Field-by-field differences between two versions of a request, as the assistant is allowed to see them. */
+export function describeRequestChanges(
+  before: RequestItem,
+  after: RequestItem,
+  secrets: readonly string[] = [],
+): AiFieldChange[] {
+  const a = sanitizeRequestForAi(before, secrets);
+  const b = sanitizeRequestForAi(after, secrets);
+  const out: AiFieldChange[] = [];
+  for (const field of ['name', 'description', 'method', 'url'] as const) {
+    if ((a[field] ?? '') !== (b[field] ?? '')) {
+      out.push({ field: field[0].toUpperCase() + field.slice(1), before: preview(a[field]), after: preview(b[field]) });
+    }
+  }
+  diffEntries('Query param', a.queryParams, b.queryParams, out);
+  diffEntries('Path param', a.pathParams, b.pathParams, out);
+  diffEntries('Header', a.headers, b.headers, out);
+  if (a.body.mode !== b.body.mode) out.push({ field: 'Body mode', before: a.body.mode, after: b.body.mode });
+  if ((a.body.content ?? '') !== (b.body.content ?? '')) {
+    out.push({ field: 'Body', before: preview(a.body.content), after: preview(b.body.content) });
+  }
+  diffEntries('Body field', a.body.urlEncoded ?? [], b.body.urlEncoded ?? [], out);
+  for (const field of ['query', 'variables', 'operationName'] as const) {
+    const x = a.graphql?.[field] ?? '';
+    const y = b.graphql?.[field] ?? '';
+    if (x !== y) out.push({ field: `GraphQL ${field}`, before: preview(x), after: preview(y) });
+  }
+  for (const field of ['captures', 'assertions'] as const) {
+    const x = JSON.stringify(a[field]);
+    const y = JSON.stringify(b[field]);
+    if (x !== y) {
+      out.push({ field: field[0].toUpperCase() + field.slice(1), before: preview(x), after: preview(y) });
+    }
+  }
+  return out;
+}
+
+/** Variable differences for previews; hidden values are shown as hidden, never as text. */
+export function describeVariableChanges(
+  before: VariableEntry[] | undefined,
+  after: VariableEntry[],
+  secrets: readonly string[] = [],
+): AiFieldChange[] {
+  const view = (vars: VariableEntry[] | undefined) =>
+    sanitizeVariablesForAi(vars, secrets).map(v => ({
+      key: v.key,
+      value: v.secret ? (v.value === undefined ? '(hidden)' : REDACTED) : v.value,
+      enabled: v.enabled,
+    }));
+  const out: AiFieldChange[] = [];
+  diffEntries('Variable', view(before), view(after), out);
+  return out;
+}
+

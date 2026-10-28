@@ -63,19 +63,20 @@ It is **built into the app** using LLM tool calling that runs against the app's 
 - [ ] Security review pass (`/security-review`) over `src/main/ai/` and the renderer tool host.
 
 ### 🧩 Functionality
-- [ ] **Tool-triggered GraphQL schema load / introspection** (today the user must load the schema in the GraphQL tab first). Send trimmed SDL in the initial context.
+- [x] **Tool-triggered GraphQL schema load**: `load_graphql_schema` (risk `run`, asks first) runs the GraphQL tab's discovery (introspection, then local file) via a loader published in `aiGraphqlSchema.ts`.
+- [ ] Optional: send trimmed SDL in the initial context.
 - [ ] More tools: delete / move / rename requests and folders, create folders and collections, folder- and collection-level settings (headers, variables), request history, other tabs' responses, runner results, captured variables. (Auth stays excluded by design.)
 - [ ] Feed `docs/ai-authoring-guide.md` into the prompt for whole-collection authoring.
 - [ ] `ai:listModels` (best effort) to populate the model field.
-- [ ] Conversation memory across turns includes tool results (today only the final text is kept, so the assistant re-reads each turn).
-- [ ] Fallback to chat-only when a model/server does not support tool calling.
+- [x] Conversation memory across turns includes tool results: Main emits a `tool-transcript` at the end of a turn (scrubbed results, no provider internals); the renderer sends it back and Main validates, re-scrubs and expands the last 3 turns with results capped at 4,000 chars.
+- [x] Fallback to chat-only when a model/server does not support tool calling (round-0 "tools not supported" errors retry without tools, notify the user, and are remembered per provider/base URL/model).
 
 ### 🖥️ UX
-- [ ] Before/after **diff** in edit approval cards (today shows new values only).
-- [ ] **Undo** for applied edits.
+- [x] Before/after **diff** in edit approval cards (`describeRequestChanges` / `describeVariableChanges`; hidden values stay masked).
+- [x] **Undo** for applied edits (last 5 in the panel; restores the previous request/variables or removes a created request).
 - [ ] **"Apply to request"** on GraphQL/JSON code blocks.
 - [ ] **"Explain this error"** button on the response inspector.
-- [ ] Markdown rendering for answers (headings, lists, tables, inline code).
+- [x] Markdown rendering for answers (`markdown.ts` + `AiMarkdown.tsx`: headings, lists, quotes, tables, emphasis, inline code; React elements only, links shown but not clickable).
 - [ ] Per-tab / persisted chat history across restarts.
 - [ ] Token usage and cost display; surface reasoning/"thinking" content for reasoning models.
 

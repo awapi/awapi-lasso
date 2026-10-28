@@ -22,6 +22,7 @@ describe('AI tool definitions', () => {
     expect(getAiTool('create_request')?.risk).toBe('write');
     expect(getAiTool('set_environment_variables')?.risk).toBe('write');
     expect(getAiTool('send_request')?.risk).toBe('run');
+    expect(getAiTool('load_graphql_schema')?.risk).toBe('run');
     expect(getAiTool('nope')).toBeUndefined();
   });
 

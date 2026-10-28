@@ -249,6 +249,13 @@ export const AI_TOOLS: readonly AiToolDefinition[] = [
     },
   },
   {
+    name: 'load_graphql_schema',
+    risk: 'run',
+    description:
+      'Discover the schema of the GraphQL request open in the active tab (introspection query to the server, falling back to its configured local schema file). Requires user approval because it sends a request. Returns the same overview as get_graphql_schema.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
     name: 'send_request',
     risk: 'run',
     description:

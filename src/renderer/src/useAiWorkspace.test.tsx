@@ -117,6 +117,18 @@ describe('useAiWorkspace', () => {
     expect(probe.activeTabId).toBe(probe.tabs[2].id);
   });
 
+  it('removes a request from the tree and closes its tab (undo of create_request)', () => {
+    const { probe } = setup();
+    const created = createDefaultHttpRequest({ id: 'req_new', name: 'New' });
+    act(() => probe.ws.addRequest('/c.awjc', 'fld', created));
+    expect(probe.activeTabId).not.toBe('tab_root');
+    act(() => probe.ws.removeRequest?.('/c.awjc', 'req_new'));
+    const folder = probe.collections[0].collection.items[0];
+    expect(folder.kind === 'folder' && folder.items.map(i => i.id)).toEqual(['req_folder']);
+    expect(probe.tabs.map(t => t.id)).toEqual(['tab_root']);
+    expect(probe.activeTabId).toBe('tab_root');
+  });
+
   it('applies collection updates and marks the collection unsaved', () => {
     const { probe } = setup();
     act(() => probe.ws.updateCollection('/c.awjc', c => ({ ...c, variables: [{ key: 'a', value: '1', enabled: true }] })));

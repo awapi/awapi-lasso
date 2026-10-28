@@ -19,6 +19,24 @@ describe('toApiMessages', () => {
   });
 });
 
+describe('toApiMessages with tool transcripts', () => {
+  it('keeps an assistant turn that only used tools and passes its transcript along', () => {
+    const transcript = [
+      { role: 'assistant' as const, content: '', toolCalls: [{ id: 't1', name: 'get_request', arguments: {} }] },
+      { role: 'tool' as const, toolCallId: 't1', name: 'get_request', content: '{}' },
+    ];
+    expect(
+      toApiMessages([
+        { id: '1', role: 'user', content: 'hi' },
+        { id: '2', role: 'assistant', content: '', toolTranscript: transcript },
+      ]),
+    ).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: '', toolTranscript: transcript },
+    ]);
+  });
+});
+
 describe('useAiChat', () => {
   let emit: (e: AiTurnEvent) => void;
   let aiSend: ReturnType<typeof vi.fn>;
@@ -209,5 +227,31 @@ describe('useAiChat', () => {
       act(() => result.current.clear());
       expect(onTurnEnd).toHaveBeenCalledTimes(4);
     });
+  });
+
+  it('remembers the tool transcript of a finished turn and sends it with the next message', async () => {
+    const { result } = renderHook(() => useAiChat({ getContext: () => undefined }));
+    await act(async () => {
+      await result.current.send('first');
+    });
+    const turnId = lastTurnId();
+    const transcript = [
+      { role: 'assistant' as const, content: '', toolCalls: [{ id: 't1', name: 'get_request', arguments: {} }] },
+      { role: 'tool' as const, toolCallId: 't1', name: 'get_request', content: '{"url":"/x"}' },
+    ];
+    act(() => {
+      emit({ turnId, event: { type: 'text-delta', text: 'Done' } });
+      emit({ turnId, event: { type: 'tool-transcript', messages: transcript } });
+    });
+    expect(result.current.isStreaming).toBe(true);
+    act(() => emit({ turnId, event: { type: 'done' } }));
+    await act(async () => {
+      await result.current.send('second');
+    });
+    expect((aiSend.mock.calls.at(-1)![0] as { messages: unknown[] }).messages).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'Done', toolTranscript: transcript },
+      { role: 'user', content: 'second' },
+    ]);
   });
 });

@@ -49,6 +49,7 @@ AwapiLasso is a fast, lightweight, local-first HTTP, RESTful, and GraphQL API cl
 - Secrets that only Main holds (keychain vault values, cached OAuth 2.0 tokens) are scrubbed via `collectMainSecretValues` (`src/main/ai/mainSecrets.ts`). A new Main-side secret store must be added there.
 - Changes that could send requests to another host (URL scheme/host edits, URL-valued variables) must set `warning` on the approval request so they always ask, even with auto-apply on. Free-text scrubbing (known key formats, private keys, high-entropy tokens) lives in `redactText` (`src/shared/aiContext.ts`).
 - Provider-specific raw content (for example Claude thinking blocks) stays in Main as the `provider-content` stream event and is replayed unchanged within a turn; it is never forwarded to the renderer. Don't send sampling parameters to models that reject them (`acceptsSamplingParams`).
+- Model output is untrusted. Render it only through `AiMarkdown` (React elements; never `dangerouslySetInnerHTML`, never clickable links). Tool transcripts sent back from the renderer are validated (`validateToolTranscript`) and re-scrubbed in Main.
 
 ## 🚨 CRITICAL: Testing Requirements
 - **Unit Tests are Mandatory:** Whenever you create a new method, function, or UI component—or modify an existing one—you MUST add and update the corresponding unit tests immediately.

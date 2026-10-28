@@ -4,8 +4,10 @@ import { useTheme } from '../context/ThemeContext';
 import { AI_PROVIDERS, type AiChatContext } from '../../../shared/aiTypes';
 import { useAiChat, type ToolActivity, type UiChatMessage } from '../useAiChat';
 import { useAiApprovals } from '../useAiApprovals';
-import { executeAiTool, type AiToolHost, type AiToolWorkspace } from '../aiToolHost';
+import { executeAiTool, type AiAppliedEdit, type AiToolHost, type AiToolWorkspace } from '../aiToolHost';
+import type { AiFieldChange } from '../../../shared/aiSanitize';
 import { AiSettingsModal } from './AiSettingsModal';
+import { AiMarkdown } from './AiMarkdown';
 
 export const AI_PANEL_WIDTH_STORAGE_KEY = 'awapilasso.aiPanelWidth';
 export const AI_PANEL_MIN_WIDTH = 300;
@@ -97,6 +99,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_environments: 'Read environments',
   list_collection_items: 'Read collection items',
   get_graphql_schema: 'Read the GraphQL schema',
+  load_graphql_schema: 'Loaded the GraphQL schema',
   validate_graphql_query: 'Validated a GraphQL query',
   open_request: 'Opened a request',
   update_request: 'Edited a request',
@@ -221,7 +224,7 @@ const MessageView: React.FC<{ message: UiChatMessage; streaming: boolean; colors
             block.type === 'code' ? (
               <CodeBlock key={i} block={block} colors={colors} />
             ) : (
-              <span key={i}>{block.content}</span>
+              <AiMarkdown key={i} text={block.content} />
             ),
           )}
           {streaming && message.content === '' && <span style={{ color: colors.textMuted }}>Thinking…</span>}
@@ -235,16 +238,63 @@ const MessageView: React.FC<{ message: UiChatMessage; streaming: boolean; colors
   );
 };
 
+/** How many applied edits stay undoable in the panel. */
+export const MAX_UNDOABLE_EDITS = 5;
+
+const ChangeList: React.FC<{ changes: AiFieldChange[]; colors: ReturnType<typeof useTheme>['colors'] }> = ({
+  changes,
+  colors,
+}) => (
+  <div data-testid="ai-approval-changes" style={{ display: 'flex', flexDirection: 'column', gap: 4, margin: '0 0 8px' }}>
+    {changes.map((c, i) => (
+      <div key={i} data-testid="ai-approval-change" style={{ wordBreak: 'break-word' }}>
+        <div style={{ color: colors.textSecondary, fontWeight: 600 }}>{c.field}</div>
+        <div style={{ fontFamily: 'monospace', fontSize: 11, whiteSpace: 'pre-wrap' }}>
+          {c.before !== '' && (
+            <div data-testid="ai-change-before" style={{ color: colors.danger, textDecoration: 'line-through' }}>
+              − {c.before}
+            </div>
+          )}
+          {c.after !== '' ? (
+            <div data-testid="ai-change-after" style={{ color: colors.success }}>
+              + {c.after}
+            </div>
+          ) : (
+            <div data-testid="ai-change-after" style={{ color: colors.textMuted }}>
+              (removed)
+            </div>
+          )}
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+interface UndoableEdit extends AiAppliedEdit {
+  id: number;
+}
+
 export const AiChatPanel: React.FC<AiChatPanelProps> = ({ open, onClose, getContext, workspace }) => {
   const { colors } = useTheme();
   const approvals = useAiApprovals();
   const { request: requestApproval, declineAll } = approvals;
+  const [appliedEdits, setAppliedEdits] = useState<UndoableEdit[]>([]);
+  const editCounterRef = useRef(0);
+  const onApplied = useCallback((edit: AiAppliedEdit) => {
+    const id = ++editCounterRef.current;
+    setAppliedEdits(prev => [...prev, { ...edit, id }].slice(-MAX_UNDOABLE_EDITS));
+  }, []);
+  const undoEdit = useCallback((edit: UndoableEdit) => {
+    edit.undo();
+    setAppliedEdits(prev => prev.filter(e => e.id !== edit.id));
+  }, []);
   const host = useMemo<AiToolHost | null>(
     () =>
       workspace
         ? {
             workspace,
             requestApproval,
+            onApplied,
             getApprovalPolicy: async () => {
               const settings = await window.electronAPI?.aiGetSettings?.();
               return {
@@ -255,7 +305,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({ open, onClose, getCont
             },
           }
         : null,
-    [workspace, requestApproval],
+    [workspace, requestApproval, onApplied],
   );
   const executeTool = useMemo(
     () => (host ? (call: Parameters<typeof executeAiTool>[0]) => executeAiTool(call, host) : undefined),
@@ -407,7 +457,10 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({ open, onClose, getCont
               </div>
             )}
           </div>
-          <button type="button" aria-label="Clear conversation" title="Clear conversation" data-testid="ai-clear-btn" onClick={clear} style={iconButton}>
+          <button type="button" aria-label="Clear conversation" title="Clear conversation" data-testid="ai-clear-btn" onClick={() => {
+            clear();
+            setAppliedEdits([]);
+          }} style={iconButton}>
             <Trash2 size={14} />
           </button>
           <button type="button" aria-label="AI settings" title="AI settings" data-testid="ai-open-settings-btn" onClick={() => setSettingsOpen(true)} style={iconButton}>
@@ -510,11 +563,15 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({ open, onClose, getCont
                     ⚠ {p.warning}
                   </div>
                 )}
-                <ul style={{ margin: '0 0 8px', paddingLeft: 16, color: colors.textSecondary, wordBreak: 'break-word' }}>
-                  {p.lines.map((line, i) => (
-                    <li key={i}>{line}</li>
-                  ))}
-                </ul>
+                {p.changes && p.changes.length > 0 ? (
+                  <ChangeList changes={p.changes} colors={colors} />
+                ) : (
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 16, color: colors.textSecondary, wordBreak: 'break-word' }}>
+                    {p.lines.map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
+                )}
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
                     type="button"
@@ -549,6 +606,50 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({ open, onClose, getCont
                     Decline
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {appliedEdits.length > 0 && (
+          <div
+            data-testid="ai-applied-edits"
+            style={{ borderTop: `1px solid ${colors.border}`, padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}
+          >
+            {appliedEdits.map(edit => (
+              <div
+                key={edit.id}
+                data-testid="ai-applied-edit"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.textSecondary }}
+              >
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Applied: {edit.title}
+                </span>
+                <button
+                  type="button"
+                  data-testid="ai-undo-btn"
+                  onClick={() => undoEdit(edit)}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    border: `1px solid ${colors.border}`,
+                    backgroundColor: colors.bgSecondary,
+                    color: colors.textPrimary,
+                    cursor: 'pointer',
+                    fontSize: 11,
+                  }}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  data-testid="ai-dismiss-edit-btn"
+                  onClick={() => setAppliedEdits(prev => prev.filter(e => e.id !== edit.id))}
+                  style={{ border: 'none', background: 'transparent', color: colors.textMuted, cursor: 'pointer', padding: 2 }}
+                >
+                  <X size={12} />
+                </button>
               </div>
             ))}
           </div>

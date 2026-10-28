@@ -225,12 +225,20 @@ describe('AiChatPanel', () => {
       );
       const card = await screen.findByTestId('ai-approval');
       expect(card).toHaveTextContent('Edit request "Users"');
-      expect(card).toHaveTextContent('Url → {{baseUrl}}/v2');
+      expect(screen.getByTestId('ai-approval-change')).toHaveTextContent('Url');
+      expect(screen.getByTestId('ai-change-before')).toHaveTextContent('{{baseUrl}}/users');
+      expect(screen.getByTestId('ai-change-after')).toHaveTextContent('{{baseUrl}}/v2');
       expect(updateRequest).not.toHaveBeenCalled();
       fireEvent.click(screen.getByTestId('ai-approve-btn'));
       await waitFor(() => expect(updateRequest).toHaveBeenCalledWith('req_1', expect.objectContaining({ url: '{{baseUrl}}/v2' })));
       await waitFor(() => expect(api.aiToolResult).toHaveBeenCalledWith('k2', expect.objectContaining({ ok: true })));
       expect(screen.queryByTestId('ai-approval')).not.toBeInTheDocument();
+
+      // The applied edit can be undone from the panel.
+      expect(await screen.findByTestId('ai-applied-edit')).toHaveTextContent('Edit request "Users"');
+      fireEvent.click(screen.getByTestId('ai-undo-btn'));
+      expect(updateRequest).toHaveBeenLastCalledWith('req_1', expect.objectContaining({ url: '{{baseUrl}}/users' }));
+      expect(screen.queryByTestId('ai-applied-edit')).not.toBeInTheDocument();
     });
 
     it('declining reports back to the assistant without changing anything', async () => {

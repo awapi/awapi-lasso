@@ -8,7 +8,7 @@ import {
 import type { HttpResponseResult } from '../../shared/httpTypes';
 import type { AiToolWorkspace } from './aiToolHost';
 import { collectWorkspaceSecretValues } from './aiContextBuilder';
-import { getGraphqlSchemaForAi } from './aiGraphqlSchema';
+import { getGraphqlSchemaForAi, loadGraphqlSchemaForAi } from './aiGraphqlSchema';
 import type { WorkspaceCollectionEntry } from './components/CollectionSidebar';
 import type { RequestWorkspaceTab } from './components/RequestTabBar';
 
@@ -59,6 +59,12 @@ function insertRequest(
     if (item.id === parentFolderId) return { ...item, items: [...item.items, request] };
     return { ...item, items: insertRequest(item.items, request, parentFolderId) };
   });
+}
+
+function removeFromTree(items: CollectionTreeItem[], id: string): CollectionTreeItem[] {
+  return items
+    .filter(item => item.id !== id)
+    .map(item => (item.kind === 'folder' ? { ...item, items: removeFromTree(item.items, id) } : item));
 }
 
 /**
@@ -119,6 +125,7 @@ export function useAiWorkspace(state: AiWorkspaceState, setters: AiWorkspaceSett
       getTabs: () => stateRef.current.tabs,
       getActiveTabId: () => stateRef.current.activeTabId,
       getGraphqlSchema: getGraphqlSchemaForAi,
+      loadGraphqlSchema: loadGraphqlSchemaForAi,
       getResponse: tabId => stateRef.current.responsesByTab[tabId] ?? null,
       getSecretValues: () =>
         collectWorkspaceSecretValues({
@@ -170,6 +177,30 @@ export function useAiWorkspace(state: AiWorkspaceState, setters: AiWorkspaceSett
           ),
         );
         openInNewTab(filePath, request);
+      },
+
+      removeRequest: (filePath, requestId) => {
+        commitCollections(
+          stateRef.current.collections.map(entry =>
+            entry.filePath === filePath
+              ? {
+                  ...entry,
+                  isDirty: true,
+                  collection: { ...entry.collection, items: removeFromTree(entry.collection.items, requestId) },
+                }
+              : entry,
+          ),
+        );
+        const remaining = stateRef.current.tabs.filter(t => t.request.id !== requestId);
+        if (remaining.length !== stateRef.current.tabs.length) {
+          const activeClosed = !remaining.some(t => t.id === stateRef.current.activeTabId);
+          commitTabs(remaining);
+          if (activeClosed) {
+            const next = remaining[remaining.length - 1];
+            stateRef.current = { ...stateRef.current, activeTabId: next?.id ?? null };
+            settersRef.current.setActiveTabId(next?.id ?? null);
+          }
+        }
       },
 
       openRequest: requestId => {

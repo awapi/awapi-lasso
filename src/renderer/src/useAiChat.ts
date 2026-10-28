@@ -4,6 +4,7 @@ import type {
   AiChatMessage,
   AiToolCall,
   AiToolResult,
+  AiToolTranscriptMessage,
   AiTurnEvent,
 } from '../../shared/aiTypes';
 
@@ -24,6 +25,8 @@ export interface UiChatMessage {
   cancelled?: boolean;
   /** Workspace tools the assistant used while producing this message. */
   tools?: ToolActivity[];
+  /** Tool calls and results from this turn, sent back so later turns remember them. */
+  toolTranscript?: AiToolTranscriptMessage[];
 }
 
 export interface UseAiChatOptions {
@@ -48,8 +51,8 @@ const nextId = (prefix: string): string => `${prefix}_${Date.now().toString(36)}
 
 export function toApiMessages(messages: UiChatMessage[]): AiChatMessage[] {
   return messages
-    .filter(m => !m.error && m.content.trim() !== '')
-    .map(m => ({ role: m.role, content: m.content }));
+    .filter(m => !m.error && (m.content.trim() !== '' || m.toolTranscript?.length))
+    .map(m => ({ role: m.role, content: m.content, ...(m.toolTranscript ? { toolTranscript: m.toolTranscript } : {}) }));
 }
 
 export function useAiChat({ getContext, executeTool, onTurnEnd }: UseAiChatOptions): UseAiChatResult {
@@ -111,6 +114,10 @@ export function useAiChat({ getContext, executeTool, onTurnEnd }: UseAiChatOptio
           tools: [...(m.tools ?? []), { id: event.call.id, name: event.call.name, status: 'running' }],
         }));
         void runTool(turnEvent.turnId, assistantId, event.call);
+        return;
+      }
+      if (event.type === 'tool-transcript') {
+        patchAssistant(assistantId, m => ({ ...m, toolTranscript: event.messages }));
         return;
       }
       if (event.type === 'error') {

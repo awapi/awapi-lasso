@@ -4,7 +4,14 @@ import type { SecretStoreDeps } from '../secretStore';
 import { saveAiSettings, setAiKey, type AiSettingsFsDeps } from './aiSettingsStore';
 import {
   AiIdleTimeoutError,
+  CHAT_ONLY_NOTICE,
+  MAX_REMEMBERED_TOOL_RESULT_CHARS,
+  MAX_REMEMBERED_TOOL_TURNS,
   MAX_TOOL_ROUNDS,
+  expandHistory,
+  validateToolTranscript,
+  isToolsUnsupportedError,
+  resetToolSupportCache,
   cancelAiTurn,
   resolveAiToolResult,
   runAiTurn,
@@ -13,7 +20,7 @@ import {
   withIdleTimeout,
   type AiServiceDeps,
 } from './aiService';
-import type { ProviderRequest, StreamChat } from './providers';
+import { AiProviderError, type ProviderRequest, type StreamChat } from './providers';
 
 function createDeps(streamChat: StreamChat) {
   const files = new Map<string, string>();
@@ -458,5 +465,133 @@ describe('provider idle timeout', () => {
     );
     expect(eventsOf(events).at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('stopped responding') });
     expect(signal?.aborted).toBe(true);
+  });
+});
+
+describe('chat-only fallback', () => {
+  it('recognises "tools not supported" provider errors', () => {
+    for (const message of [
+      'The AI server request failed (HTTP 400). registry.ollama.ai/library/llama2:latest does not support tools',
+      'Model does not support function calling',
+      'tools is not supported for this model',
+      'Tool use is unsupported by this server',
+      '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set',
+    ]) {
+      expect(isToolsUnsupportedError(new AiProviderError(message, 400)), message).toBe(true);
+    }
+    expect(isToolsUnsupportedError(new AiProviderError('Invalid API key', 401))).toBe(false);
+    expect(isToolsUnsupportedError(new AiProviderError('context length exceeded', 400))).toBe(false);
+    expect(isToolsUnsupportedError(new Error('does not support tools'))).toBe(false);
+  });
+
+  it('retries without tools, tells the user, and skips tools for that model afterwards', async () => {
+    resetToolSupportCache();
+    const requests: ProviderRequest[] = [];
+    const stream: StreamChat = async function* (req) {
+      requests.push(req);
+      if (req.tools?.length) throw new AiProviderError('llama2 does not support tools', 400);
+      yield { type: 'text-delta', text: 'Answer' };
+      yield { type: 'done', stopReason: 'stop' };
+    };
+    const { deps, events, secretDeps } = createDeps(stream);
+    setAiKey('openai', 'sk-1', secretDeps);
+    await runAiTurn({ turnId: 'co1', toolsEnabled: true, messages: [{ role: 'user', content: 'x' }] }, deps);
+    expect(eventsOf(events)).toEqual([
+      { type: 'text-delta', text: CHAT_ONLY_NOTICE },
+      { type: 'text-delta', text: 'Answer' },
+      { type: 'done', stopReason: 'stop' },
+    ]);
+    expect(requests.map(r => Boolean(r.tools?.length))).toEqual([true, false]);
+    expect(requests[1].system).not.toContain('get_request');
+
+    await runAiTurn({ turnId: 'co2', toolsEnabled: true, messages: [{ role: 'user', content: 'y' }] }, deps);
+    expect(requests.map(r => Boolean(r.tools?.length))).toEqual([true, false, false]);
+    expect(eventsOf(events).filter(e => e.type === 'text-delta' && e.text === CHAT_ONLY_NOTICE)).toHaveLength(2);
+    resetToolSupportCache();
+  });
+
+  it('still reports other errors as errors', async () => {
+    resetToolSupportCache();
+    const stream: StreamChat = async function* () {
+      throw new AiProviderError('Rate limit (HTTP 429)', 429);
+    };
+    const { deps, events, secretDeps } = createDeps(stream);
+    setAiKey('openai', 'sk-1', secretDeps);
+    await runAiTurn({ turnId: 'co3', toolsEnabled: true, messages: [{ role: 'user', content: 'x' }] }, deps);
+    expect(eventsOf(events)).toEqual([{ type: 'error', message: 'Rate limit (HTTP 429)' }]);
+  });
+});
+
+describe('tool memory across turns', () => {
+  const call = (id: string, name = 'get_request') => ({ id, name, arguments: {} });
+  const exchange = (id: string, content = '{}') => [
+    { role: 'assistant' as const, content: '', toolCalls: [call(id)] },
+    { role: 'tool' as const, toolCallId: id, name: 'get_request', content },
+  ];
+
+  it('accepts only well-formed transcripts with known tools and answered calls', () => {
+    expect(validateToolTranscript(exchange('a'))).toEqual(exchange('a'));
+    expect(validateToolTranscript([])).toBeNull();
+    expect(validateToolTranscript([{ role: 'assistant', content: '', toolCalls: [call('a', 'rm_rf')] }])).toBeNull();
+    expect(validateToolTranscript([exchange('a')[0]])).toBeNull();
+    expect(validateToolTranscript([exchange('a')[1]])).toBeNull();
+    expect(validateToolTranscript([...exchange('a'), { role: 'user', content: 'x' }])).toBeNull();
+    expect(validateToolTranscript('nope')).toBeNull();
+  });
+
+  it('keeps tool-only assistant turns and drops invalid transcripts instead of failing', () => {
+    const history = validateMessages([
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: '', toolTranscript: exchange('t1') },
+      { role: 'user', content: 'b' },
+      { role: 'assistant', content: 'ok', toolTranscript: [{ role: 'tool', toolCallId: 'x', content: '' }] },
+      { role: 'user', content: 'c' },
+    ]);
+    expect(history[1]).toEqual({ role: 'assistant', content: '', toolTranscript: exchange('t1') });
+    expect(history[3]).toEqual({ role: 'assistant', content: 'ok' });
+  });
+
+  it('re-inserts recent exchanges, scrubbed and shortened, before each answer', () => {
+    const long = `secret-777 ${'x'.repeat(MAX_REMEMBERED_TOOL_RESULT_CHARS + 100)}`;
+    const history = [
+      { role: 'user' as const, content: 'u0' },
+      ...Array.from({ length: MAX_REMEMBERED_TOOL_TURNS + 1 }, (_, i) => [
+        { role: 'assistant' as const, content: `a${i}`, toolTranscript: exchange(`t${i}`, i === MAX_REMEMBERED_TOOL_TURNS ? long : '{}') },
+        { role: 'user' as const, content: `u${i + 1}` },
+      ]).flat(),
+    ];
+    const out = expandHistory(history, ['secret-777']);
+    const toolMessages = out.filter(m => m.role === 'tool');
+    expect(toolMessages.map(m => (m as { toolCallId: string }).toolCallId)).toEqual(['t1', 't2', 't3']);
+    const last = toolMessages.at(-1)!.content;
+    expect(last).not.toContain('secret-777');
+    expect(last.length).toBeLessThan(MAX_REMEMBERED_TOOL_RESULT_CHARS + 100);
+    const idx = out.findIndex(m => m.role === 'tool' && m.toolCallId === 't3');
+    expect(out[idx - 1]).toMatchObject({ role: 'assistant', toolCalls: [{ id: 't3' }] });
+    expect(out[idx + 1]).toEqual({ role: 'assistant', content: 'a3' });
+  });
+
+  it('emits the turn transcript (without provider internals) before done', async () => {
+    const turns: AiStreamEvent[][] = [
+      [{ type: 'tool-call', call: call('c1') }, { type: 'done' }],
+      [{ type: 'text-delta', text: 'Here' }, { type: 'done', stopReason: 'stop' }],
+    ];
+    let round = 0;
+    const stream: StreamChat = async function* () {
+      const script = turns[Math.min(round++, turns.length - 1)];
+      for (const e of script) yield e;
+      if (round === 1) yield { type: 'provider-content', content: [{ type: 'thinking', thinking: 'secret plan' }] };
+    };
+    const { deps, events, secretDeps } = createDeps(stream);
+    setAiKey('openai', 'sk-1', secretDeps);
+    const turn = runAiTurn({ turnId: 'tm1', toolsEnabled: true, messages: [{ role: 'user', content: 'x' }] }, deps);
+    await vi.waitFor(() => expect(eventsOf(events).some(e => e.type === 'tool-call')).toBe(true));
+    resolveAiToolResult('tm1::c1', { ok: true, content: '{"url":"/users"}' });
+    await turn;
+    const evs = eventsOf(events);
+    const transcript = evs.find(e => e.type === 'tool-transcript');
+    expect(transcript).toEqual({ type: 'tool-transcript', messages: exchange('c1', '{"url":"/users"}') });
+    expect(JSON.stringify(evs)).not.toContain('secret plan');
+    expect(evs.indexOf(transcript!)).toBe(evs.length - 2);
   });
 });

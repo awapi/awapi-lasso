@@ -19,3 +19,20 @@ export function publishGraphqlSchemaForAi(schema: AiGraphqlSchema | null): void 
 export function getGraphqlSchemaForAi(): AiGraphqlSchema | null {
   return current;
 }
+
+export type AiGraphqlSchemaLoadResult = { ok: true; schema: AiGraphqlSchema } | { ok: false; error: string };
+
+/** Discovers the schema the same way as the GraphQL tab's Discover button (introspection, then local file). */
+let loader: (() => Promise<AiGraphqlSchemaLoadResult>) | null = null;
+
+export function publishGraphqlSchemaLoaderForAi(next: (() => Promise<AiGraphqlSchemaLoadResult>) | null): void {
+  loader = next;
+}
+
+/** Runs the active GraphQL workspace's loader. Resolves null when no GraphQL request is open. */
+export async function loadGraphqlSchemaForAi(): Promise<AiGraphqlSchemaLoadResult | null> {
+  if (!loader) return null;
+  const result = await loader();
+  if (result.ok) current = result.schema;
+  return result;
+}

@@ -42,7 +42,9 @@ Defaults: Anthropic uses `claude-opus-5-5`, and *Max output tokens* is `8192`. C
 - **Work with the workspace:** "Create a request for the users endpoint in the Payments collection", "Add a `region` variable to dev."
 - **Test it:** "Send it and tell me what's wrong." (asks before sending)
 
-Code blocks in answers have a **Copy** button.
+Answers are rendered as Markdown (headings, lists, tables, bold/italic, inline code). Links are shown with their address but are not clickable. Code blocks have a **Copy** button.
+
+The assistant remembers the tool results from your last few turns (shortened), so follow-up questions don't re-read everything. It re-reads before editing when those results may be out of date.
 
 ## What the assistant can do
 
@@ -55,12 +57,13 @@ The assistant works only through a fixed set of tools. Each tool call appears as
 | `get_response` | Status, timing, headers, body (paged), capture and assertion results | none |
 | `list_environments` | Environments and collection variables (secret values never shown) | none |
 | `get_graphql_schema`, `validate_graphql_query` | Read the GraphQL schema loaded for the active request; validate a query against it | none |
+| `load_graphql_schema` | Discover the active GraphQL request's schema (introspection, falling back to its local schema file) | asks first (sends a request) |
 | `update_request` | Edit any request field **except auth** | asks first |
 | `create_request` | Add a request to a collection or folder | asks first |
 | `set_environment_variables` | Add or change **non-secret** variables | asks first |
 | `send_request` | Send the active request (a real network call) | asks first |
 
-Edits and sends show a summary with **Apply / Decline** buttons. Applied edits are **unsaved changes** in the tab and collection; review them and save or discard as usual. GraphQL tools need a schema loaded in the request's GraphQL tab (introspection or a schema file).
+Edits show each changed field as **before → after** (hidden values stay hidden) with **Apply / Decline** buttons; sends show a summary. Applied edits are **unsaved changes** in the tab and collection. The last few appear above the input with an **Undo** button. Undo restores the version from before that edit, so it also discards later changes to the same request or variables. If no GraphQL schema is loaded, the assistant can discover it with `load_graphql_schema` after you approve.
 
 ## Security & privacy
 
@@ -148,8 +151,8 @@ Please read these before using the assistant on sensitive APIs:
 | Test connection times out | The local server is not running or is still loading the model; retry after it loads |
 | "stopped responding (no data for 180 s)" | The provider sent nothing for 3 minutes during a turn, so it was aborted. Check the server, or use a smaller context or model |
 | Answers cut off or empty | Raise *Max output tokens* (thinking models need more) and the model's context length (8192 or more) |
-| The assistant never uses tools or errors on tools | The model may not support tool calling; pick one that does |
-| GraphQL tools say no schema is loaded | Load or discover the schema in the request's GraphQL tab first |
+| "This model doesn't support tool calling" | The server rejected tool calling, so the assistant answers from the shared context only (remembered until restart). Pick a model that supports tools to let it read and edit the workspace |
+| GraphQL tools say no schema is loaded | Ask the assistant to load it (it opens the request and runs introspection after you approve), or load it in the request's GraphQL tab |
 | "Secure storage is unavailable" | The OS keychain or Secret Service is not accessible; the key is not saved by design |
 
 ## Current limits

@@ -1,13 +1,22 @@
-import type { AwjcCollection, CollectionTreeItem, FolderItem, RequestItem } from '../../shared/collectionSchema';
+import type {
+  AwjcCollection,
+  CollectionTreeItem,
+  FolderItem,
+  RequestItem,
+  VariableEntry,
+} from '../../shared/collectionSchema';
 import type { AiToolCall, AiToolResult } from '../../shared/aiTypes';
 import type { HttpResponseResult } from '../../shared/httpTypes';
-import { redactUrl } from '../../shared/aiContext';
+import { redactText, redactUrl } from '../../shared/aiContext';
 import {
   applyRequestChanges,
   applyVariableChanges,
   buildRequestFromSpec,
   changedUrlVariables,
   changesUrlOrigin,
+  describeRequestChanges,
+  describeVariableChanges,
+  type AiFieldChange,
   describeTreeForAi,
   sanitizeRequestForAi,
   sanitizeResponseForAi,
@@ -15,7 +24,7 @@ import {
 } from '../../shared/aiSanitize';
 import { getAiTool } from '../../shared/aiTools';
 import { describeSchemaForAi, validateGraphqlForAi } from '../../shared/aiGraphql';
-import type { AiGraphqlSchema } from './aiGraphqlSchema';
+import type { AiGraphqlSchema, AiGraphqlSchemaLoadResult } from './aiGraphqlSchema';
 
 export interface AiToolTab {
   id: string;
@@ -38,6 +47,8 @@ export interface AiToolWorkspace {
   getResponse: (tabId: string) => HttpResponseResult | null;
   /** Schema loaded by the GraphQL workspace of the active request, if any. */
   getGraphqlSchema: () => AiGraphqlSchema | null;
+  /** Discovers the active GraphQL request's schema; null when no GraphQL workspace is open. */
+  loadGraphqlSchema?: () => Promise<AiGraphqlSchemaLoadResult | null>;
   /** Plaintext secret values currently known to the app; used only to scrub tool output. */
   getSecretValues: () => string[];
   /** Replaces a request (open tab and/or collection tree item) and marks it unsaved. */
@@ -45,6 +56,8 @@ export interface AiToolWorkspace {
   updateCollection: (filePath: string, updater: (c: AwjcCollection) => AwjcCollection) => void;
   /** Inserts a request into the collection tree and opens it in a tab. */
   addRequest: (filePath: string, parentFolderId: string | undefined, request: RequestItem) => void;
+  /** Removes a request from the tree and closes its tabs (used to undo create_request). */
+  removeRequest?: (filePath: string, requestId: string) => void;
   openRequest: (requestId: string) => boolean;
   /** Sends the active tab's request exactly as the Send button would. */
   sendActiveRequest: () => Promise<HttpResponseResult | null>;
@@ -57,11 +70,22 @@ export interface AiApprovalRequest {
   lines: string[];
   /** Why this change is risky. Set for changes that could redirect requests; always asks, even with auto-apply. */
   warning?: string;
+  /** Before/after values for the fields this edit changes (hidden values stay masked). */
+  changes?: AiFieldChange[];
+}
+
+/** An applied assistant edit that can be reverted from the chat panel. */
+export interface AiAppliedEdit {
+  tool: string;
+  title: string;
+  undo: () => void;
 }
 
 export interface AiToolHost {
   workspace: AiToolWorkspace;
   requestApproval: (request: AiApprovalRequest) => Promise<boolean>;
+  /** Called after a write is applied, with a way to revert it. */
+  onApplied?: (edit: AiAppliedEdit) => void;
   getApprovalPolicy: () => Promise<{
     autoApplyEdits: boolean;
     confirmBeforeRun: boolean;
@@ -135,7 +159,7 @@ async function approve(host: AiToolHost, request: AiApprovalRequest): Promise<bo
 }
 
 const NO_SCHEMA =
-  'No GraphQL schema is loaded. Open a GraphQL request and ask the user to load or discover its schema in the GraphQL tab (introspection or a schema file).';
+  'No GraphQL schema is loaded. Open the GraphQL request (open_request) and call load_graphql_schema, or ask the user to load a schema file in the GraphQL tab.';
 
 const HOST_CHANGE_WARNING =
   'This points the request at a different host. Check it is a server you trust before applying; this always asks, even when edits are applied automatically.';
@@ -244,20 +268,46 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
       );
     }
 
+    case 'load_graphql_schema': {
+      const tab = ws.getTabs().find(t => t.id === ws.getActiveTabId());
+      if (tab?.request.protocol !== 'graphql') {
+        return fail('The active tab is not a GraphQL request. Use open_request to open one first.');
+      }
+      if (!ws.loadGraphqlSchema) return fail('Schema discovery is not available here; ask the user to load it in the GraphQL tab.');
+      const approved = await approve(host, {
+        tool: call.name,
+        risk: 'run',
+        title: `Load GraphQL schema from ${redactUrl(tab.request.url, secrets)}`,
+        lines: [
+          "Sends an introspection query to the GraphQL server with this request's auth, falling back to its local schema file.",
+        ],
+      });
+      if (!approved) return fail(DECLINED);
+      const loaded = await ws.loadGraphqlSchema();
+      if (!loaded) return fail('The GraphQL tab is not open yet. Try again in a moment.');
+      if (!loaded.ok) return fail(`Could not load the schema: ${redactText(loaded.error, secrets)}`);
+      const described = describeSchemaForAi(loaded.schema.metadata, {});
+      return described.ok ? ok({ loaded: true, schema: described.value }) : fail(described.error);
+    }
+
     case 'update_request': {
       const found = resolveRequest(host, args.requestId);
       if (typeof found === 'string') return fail(found);
       const applied = applyRequestChanges(found.request, args.changes);
       if (!applied.ok) return fail(applied.error);
+      const title = `Edit request "${found.request.name}"`;
       const approved = await approve(host, {
         tool: call.name,
         risk: 'write',
-        title: `Edit request "${found.request.name}"`,
+        title,
         lines: applied.summary,
+        changes: describeRequestChanges(found.request, applied.value, secrets),
         ...(changesUrlOrigin(found.request.url, applied.value.url) ? { warning: HOST_CHANGE_WARNING } : {}),
       });
       if (!approved) return fail(DECLINED);
       ws.updateRequest(found.request.id, applied.value);
+      const previous = found.request;
+      host.onApplied?.({ tool: call.name, title, undo: () => ws.updateRequest(previous.id, previous) });
       return ok({ updated: true, request: sanitizeRequestForAi(applied.value, secrets) });
     }
 
@@ -272,14 +322,18 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
       const built = buildRequestFromSpec(args.protocol, args.request);
       if (!built.ok) return fail(built.error);
       const folderName = folderId ? (findInTree(entry.collection.items, folderId) as FolderItem).name : null;
-      const approved = await approve(host, {
-        tool: call.name,
-        risk: 'write',
-        title: `Add request to "${entry.collection.metadata.name}"${folderName ? ` / ${folderName}` : ''}`,
-        lines: built.summary,
-      });
+      const title = `Add request to "${entry.collection.metadata.name}"${folderName ? ` / ${folderName}` : ''}`;
+      const approved = await approve(host, { tool: call.name, risk: 'write', title, lines: built.summary });
       if (!approved) return fail(DECLINED);
       ws.addRequest(entry.filePath, folderId, built.value);
+      const { removeRequest } = ws;
+      if (removeRequest) {
+        host.onApplied?.({
+          tool: call.name,
+          title: `Add request "${built.value.name}"`,
+          undo: () => removeRequest(entry.filePath, built.value.id),
+        });
+      }
       return ok({ created: true, request: sanitizeRequestForAi(built.value, secrets) });
     }
 
@@ -295,12 +349,15 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
 
       const applied = applyVariableChanges(isCollectionScope ? collection.variables : env?.variables, args.variables);
       if (!applied.ok) return fail(applied.error);
-      const urlVariables = changedUrlVariables(isCollectionScope ? collection.variables : env?.variables, applied.value);
+      const previousVariables = isCollectionScope ? collection.variables : env?.variables;
+      const urlVariables = changedUrlVariables(previousVariables, applied.value);
+      const title = isCollectionScope ? 'Edit collection variables' : `Edit environment "${target}"`;
       const approved = await approve(host, {
         tool: call.name,
         risk: 'write',
-        title: isCollectionScope ? 'Edit collection variables' : `Edit environment "${target}"`,
+        title,
         lines: applied.summary,
+        changes: describeVariableChanges(previousVariables, applied.value, secrets),
         ...(urlVariables.length
           ? {
               warning: `Changes URL variable${urlVariables.length > 1 ? 's' : ''} ${urlVariables.join(', ')}, which can send requests to a different host. This always asks, even when edits are applied automatically.`,
@@ -308,11 +365,17 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
           : {}),
       });
       if (!approved) return fail(DECLINED);
-      ws.updateCollection(entry.filePath, c =>
-        isCollectionScope
-          ? { ...c, variables: applied.value }
-          : { ...c, environments: (c.environments ?? []).map(e => (e.name === target ? { ...e, variables: applied.value } : e)) },
-      );
+      const setVariables = (variables: VariableEntry[] | undefined) =>
+        ws.updateCollection(entry.filePath, c =>
+          isCollectionScope
+            ? { ...c, variables }
+            : {
+                ...c,
+                environments: (c.environments ?? []).map(e => (e.name === target ? { ...e, variables: variables ?? [] } : e)),
+              },
+        );
+      setVariables(applied.value);
+      host.onApplied?.({ tool: call.name, title, undo: () => setVariables(previousVariables) });
       return ok({ updated: true, variables: sanitizeVariablesForAi(applied.value, secrets) });
     }
 

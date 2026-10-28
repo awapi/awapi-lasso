@@ -83,9 +83,16 @@ export function createDefaultAiSettings(): AiSettings {
 
 export type AiChatRole = 'user' | 'assistant';
 
+/** Tool calls and their (already scrubbed) results from one finished turn, remembered for later turns. */
+export type AiToolTranscriptMessage =
+  | { role: 'assistant'; content: string; toolCalls: AiToolCall[] }
+  | { role: 'tool'; toolCallId: string; name: string; content: string };
+
 export interface AiChatMessage {
   role: AiChatRole;
   content: string;
+  /** On assistant messages: the tool exchange that preceded this answer. */
+  toolTranscript?: AiToolTranscriptMessage[];
 }
 
 export interface AiToolCall {
@@ -175,6 +182,8 @@ export type AiStreamEvent =
   | { type: 'text-delta'; text: string }
   /** The model wants a workspace tool run; the renderer executes it and replies with `aiToolResult`. */
   | { type: 'tool-call'; call: AiToolCall }
+  /** Sent once at the end of a turn that used tools so the renderer can send it back with later turns. */
+  | { type: 'tool-transcript'; messages: AiToolTranscriptMessage[] }
   | { type: 'done'; stopReason?: string }
   | { type: 'error'; message: string };
 

@@ -194,7 +194,8 @@ export const AI_TOOLS_PROMPT = [
   'Read with get_request / get_response / list_environments / list_collection_items before guessing; do not invent ids.',
   'Edits and sending requests need the user\'s approval. If the user declines, do not retry the same change; ask what they prefer.',
   'Prefer small, targeted edits: pass only the fields that change to update_request.',
-  'For GraphQL: read the schema with get_graphql_schema, write the query, run validate_graphql_query, fix any errors, and only then propose it with update_request.',
+  'Tool results from earlier turns may be shortened or out of date; read again before editing something they describe.',
+  'For GraphQL: read the schema with get_graphql_schema (if none is loaded, open the GraphQL request and call load_graphql_schema), write the query, run validate_graphql_query, fix any errors, and only then propose it with update_request.',
   'Authentication and secret values are hidden from you and can never be read or changed with tools. Anything shown as [REDACTED] is hidden; never write that placeholder back.',
   'When a credential is needed, reference a {{variable}} the user has defined, or tell the user to configure it themselves.',
 ].join('\n');

@@ -203,6 +203,42 @@ describe('GraphQL tools', () => {
     }
   });
 
+  it('load_graphql_schema needs an open GraphQL tab, asks first, and returns the overview', async () => {
+    const { host, state, calls } = makeHost();
+    expect(await executeAiTool(call('load_graphql_schema'), host)).toMatchObject({
+      ok: false,
+      content: expect.stringContaining('not a GraphQL request'),
+    });
+    const gql = state.collections[0].collection.items.find(i => i.id === 'req_gql') as RequestItem;
+    state.tabs = [...state.tabs, { id: 'tab2', collectionPath: '/c.awjc', request: gql }];
+    state.activeTabId = 'tab2';
+    const loader = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, error: `401 for token ${SECRET}` })
+      .mockResolvedValueOnce({ ok: true, schema: { introspection: bundle.introspection, metadata: bundle.metadata } });
+    host.workspace.loadGraphqlSchema = loader;
+
+    const failed = await executeAiTool(call('load_graphql_schema'), host);
+    expect(failed).toMatchObject({ ok: false, content: expect.stringContaining('Could not load the schema') });
+    expect(failed.content).not.toContain(SECRET);
+    expect(calls.requestApproval.mock.calls[0][0]).toMatchObject({ risk: 'run', title: expect.stringContaining('Load GraphQL schema') });
+
+    const loaded = parse(await executeAiTool(call('load_graphql_schema'), host));
+    expect(loaded.loaded).toBe(true);
+    expect(loaded.schema.query.fields).toContain('user(id: ID!): User');
+  });
+
+  it('does not load the schema when the user declines', async () => {
+    const { host, state } = makeHost({ approve: false });
+    const gql = state.collections[0].collection.items.find(i => i.id === 'req_gql') as RequestItem;
+    state.tabs = [{ id: 'tab2', collectionPath: '/c.awjc', request: gql }];
+    state.activeTabId = 'tab2';
+    const loader = vi.fn();
+    host.workspace.loadGraphqlSchema = loader;
+    expect(await executeAiTool(call('load_graphql_schema'), host)).toMatchObject({ ok: false, content: expect.stringContaining('declined') });
+    expect(loader).not.toHaveBeenCalled();
+  });
+
   it('describes the schema and validates queries with actionable errors', async () => {
     const { host, state } = makeHost();
     state.schema = { introspection: bundle.introspection, metadata: bundle.metadata };
@@ -300,6 +336,46 @@ describe('write tools', () => {
     await executeAiTool(call('set_environment_variables', { environment: 'collection', variables: [{ key: 'region', value: 'us' }] }), host);
     const updater = calls.updateCollection.mock.calls[0][1] as (c: AwjcCollection) => AwjcCollection;
     expect(updater(makeHost().state.collections[0].collection).variables?.[0].value).toBe('us');
+  });
+});
+
+describe('change previews and undo', () => {
+  it('shows before/after values and reports an undo that restores the previous request', async () => {
+    const { host, calls } = makeHost();
+    const onApplied = vi.fn();
+    host.onApplied = onApplied;
+    await executeAiTool(call('update_request', { changes: { url: '{{baseUrl}}/v2' } }), host);
+    expect(calls.requestApproval.mock.calls[0][0].changes).toEqual([
+      { field: 'Url', before: '{{baseUrl}}/users', after: '{{baseUrl}}/v2' },
+    ]);
+    expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ tool: 'update_request', title: 'Edit request "Active"' }));
+    onApplied.mock.calls[0][0].undo();
+    expect(calls.updateRequest).toHaveBeenLastCalledWith('req_active', expect.objectContaining({ url: '{{baseUrl}}/users' }));
+  });
+
+  it('undoes created requests and variable edits; nothing to undo when declined', async () => {
+    const { host, calls } = makeHost();
+    const onApplied = vi.fn();
+    const removeRequest = vi.fn();
+    host.onApplied = onApplied;
+    host.workspace.removeRequest = removeRequest;
+
+    await executeAiTool(call('create_request', { request: { name: 'New', url: '{{baseUrl}}/new' } }), host);
+    const created = calls.addRequest.mock.calls[0][2] as RequestItem;
+    onApplied.mock.calls[0][0].undo();
+    expect(removeRequest).toHaveBeenCalledWith('/c.awjc', created.id);
+
+    await executeAiTool(call('set_environment_variables', { variables: [{ key: 'region', value: 'us' }] }), host);
+    expect(calls.requestApproval.mock.calls.at(-1)![0].changes).toEqual([{ field: 'Variable region', before: '', after: 'us' }]);
+    onApplied.mock.calls[1][0].undo();
+    const restore = calls.updateCollection.mock.calls.at(-1)![1] as (c: AwjcCollection) => AwjcCollection;
+    const restored = restore(makeHost().state.collections[0].collection);
+    expect(restored.environments?.[0].variables.map(v => v.key)).toEqual(['baseUrl', 'apiToken']);
+
+    const declined = makeHost({ approve: false });
+    declined.host.onApplied = vi.fn();
+    await executeAiTool(call('update_request', { changes: { name: 'x' } }), declined.host);
+    expect(declined.host.onApplied).not.toHaveBeenCalled();
   });
 });
 

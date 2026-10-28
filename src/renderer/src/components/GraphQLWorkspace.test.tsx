@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { ThemeProvider } from '../context/ThemeContext';
 import { loadSchemaFromSdl } from '../../../shared/graphqlSchemaLoader';
-import { getGraphqlSchemaForAi } from '../aiGraphqlSchema';
+import { getGraphqlSchemaForAi, loadGraphqlSchemaForAi } from '../aiGraphqlSchema';
 import type { GraphQLConfig } from '../../../shared/collectionSchema';
 import {
   buildGraphQLCompletionItems,
@@ -180,6 +180,18 @@ describe('GraphQLWorkspace component', () => {
     });
     unmount();
     expect(getGraphqlSchemaForAi()).toBeNull();
+  });
+
+  it('lets the assistant trigger schema discovery and removes the loader on unmount', async () => {
+    const { unmount } = render(<ControlledHarness />);
+    await waitFor(() => expect(getGraphqlSchemaForAi()).not.toBeNull());
+    const introspect = window.electronAPI.introspectGraphQLSchema as ReturnType<typeof vi.fn>;
+    const before = introspect.mock.calls.length;
+    const result = await loadGraphqlSchemaForAi();
+    expect(result).toMatchObject({ ok: true });
+    expect(introspect.mock.calls.length).toBe(before + 1);
+    unmount();
+    expect(await loadGraphqlSchemaForAi()).toBeNull();
   });
 
   it('shows actionable error banner with Try Again button when introspection fails and recovers on retry', async () => {

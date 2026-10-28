@@ -37,7 +37,7 @@ import { useTheme } from '../context/ThemeContext';
 import { ResizableSplitPane } from './ResizableSplitPane';
 import { GraphQLQueryDesigner } from './GraphQLQueryDesigner';
 import { GraphQLSchemaExplorer } from './GraphQLSchemaExplorer';
-import { publishGraphqlSchemaForAi } from '../aiGraphqlSchema';
+import { publishGraphqlSchemaForAi, publishGraphqlSchemaLoaderForAi } from '../aiGraphqlSchema';
 
 export interface GraphQLWorkspaceProps {
   graphql: GraphQLConfig;
@@ -239,9 +239,9 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
     environmentId,
   ]);
 
-  const handleDiscoverSchema = useCallback(async () => {
+  const handleDiscoverSchema = useCallback(async (): Promise<{ record?: GraphQLCachedSchemaRecord; error?: string }> => {
     const api = window.electronAPI;
-    if (!api?.introspectGraphQLSchema) return;
+    if (!api?.introspectGraphQLSchema) return { error: 'Schema discovery is not available.' };
 
     setIsLoadingSchema(true);
     setSchemaError(null);
@@ -252,27 +252,31 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
       if (res.ok && res.record) {
         setSchemaRecord(res.record);
         setSchemaError(null);
-      } else {
-        // Fallback to localSchemaPath if configured when remote introspection fails
-        const fallbackLocalPath = graphql.schemaSource?.localSchemaPath?.trim();
-        if (fallbackLocalPath && api.loadLocalGraphQLSchema) {
-          const localRes = await api.loadLocalGraphQLSchema({
-            filePath: fallbackLocalPath,
-            collectionFilePath,
-            collectionId,
-            environmentId,
-            endpointUrl: resolvedEndpointUrl,
-          });
-          if (localRes.ok && localRes.record) {
-            setSchemaRecord(localRes.record);
-            setSchemaError(null);
-            return;
-          }
-        }
-        setSchemaError(res.error || 'Failed to introspect GraphQL schema.');
+        return { record: res.record };
       }
+      // Fallback to localSchemaPath if configured when remote introspection fails
+      const fallbackLocalPath = graphql.schemaSource?.localSchemaPath?.trim();
+      if (fallbackLocalPath && api.loadLocalGraphQLSchema) {
+        const localRes = await api.loadLocalGraphQLSchema({
+          filePath: fallbackLocalPath,
+          collectionFilePath,
+          collectionId,
+          environmentId,
+          endpointUrl: resolvedEndpointUrl,
+        });
+        if (localRes.ok && localRes.record) {
+          setSchemaRecord(localRes.record);
+          setSchemaError(null);
+          return { record: localRes.record };
+        }
+      }
+      const error = res.error || 'Failed to introspect GraphQL schema.';
+      setSchemaError(error);
+      return { error };
     } catch (err) {
-      setSchemaError(err instanceof Error ? err.message : String(err));
+      const error = err instanceof Error ? err.message : String(err);
+      setSchemaError(error);
+      return { error };
     } finally {
       setIsLoadingSchema(false);
     }
@@ -409,6 +413,16 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
   useEffect(() => {
     return () => publishGraphqlSchemaForAi(null);
   }, []);
+
+  useEffect(() => {
+    publishGraphqlSchemaLoaderForAi(async () => {
+      const result = await handleDiscoverSchema();
+      return result.record
+        ? { ok: true, schema: { introspection: result.record.introspection, metadata: result.record.metadata } }
+        : { ok: false, error: result.error ?? 'Failed to load the GraphQL schema.' };
+    });
+    return () => publishGraphqlSchemaLoaderForAi(null);
+  }, [handleDiscoverSchema]);
 
   useEffect(() => {
     return () => {
