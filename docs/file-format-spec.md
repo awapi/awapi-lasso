@@ -123,6 +123,7 @@ environments:
       - key: "apiUsername"
         value: "admin@example.local"
         enabled: true
+        hideFromAi: true # saved in the file, but never shown to the in-app AI assistant
       - key: "apiPassword"
         secret: true
         enabled: true
@@ -366,6 +367,15 @@ When saving a collection to `.awjc`:
 1. Any variable with `secret: true` has its `value` omitted from the `.awjc` file on disk.
 2. The secret value is persisted in the OS Keychain via Electron's `safeStorage.encryptString()` (stored in the app's userData vault indexed by `collectionId + environmentId + variableKey`) or in an optional `<filename>.secrets.awjc` local file.
 3. At request execution time (or when previewing a hovered variable), the Main process resolves all `{{variable}}` placeholders by merging non-secret values from the `.awjc` document with secret values from the OS Keychain / local secrets store.
+
+### 4. Hiding Values from the AI Assistant (`hideFromAi`)
+Variables (`variables`, `environments[].variables`, folder `variables`) and key-value entries (`headers`, `queryParams`, `body.urlEncoded`, collection `defaults.headers`) accept an optional `hideFromAi: true` flag:
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `hideFromAi` | `boolean` | `false` | The value is **kept in the `.awjc` file** (unlike `secret: true`) but is never shown to the in-app AI assistant: tools show it as hidden, it is scrubbed wherever it appears in text, and the assistant cannot overwrite it. |
+
+Use it for values that are not credentials but should stay private (account ids, tenant names, internal hostnames). Entries with `secret: true` are always hidden from the assistant, so they do not need the flag. The flag is written only when `true`.
 
 ---
 

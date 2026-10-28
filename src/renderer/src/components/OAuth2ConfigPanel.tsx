@@ -340,6 +340,7 @@ export const OAuth2ConfigPanel: React.FC<OAuth2ConfigPanelProps> = ({
       <div>
         <label style={labelStyle}>Extra Token Parameters (e.g. audience, resource, tenant)</label>
         <KeyValueTable
+          showHideFromAiToggle={false}
           entries={config.extraParams ?? []}
           onChange={extraParams => updateField('extraParams', extraParams)}
           keyPlaceholder="Param Name"

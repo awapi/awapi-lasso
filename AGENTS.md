@@ -41,6 +41,15 @@ AwapiLasso is a fast, lightweight, local-first HTTP, RESTful, and GraphQL API cl
 - [testing](./.agents/skills/testing/SKILL.md) — Writing and running Vitest & React Testing Library unit/component tests and typechecking.
 - [release](./.agents/skills/release/SKILL.md) — Packaging, cutting, and publishing cross-platform releases (`.dmg`, `.exe`, `.msi`, `.AppImage`, `.deb`).
 
+## AI Assistant Security Rules
+- The in-app AI assistant (`src/main/ai/`, `src/shared/ai*.ts`, `src/renderer/src/ai*.ts`) must **never** be given auth configs, secret values, or API keys. Tools expose auth only as a type, hide credential-looking values (`[REDACTED]`), and must reject writes containing the placeholder or literal credentials.
+- AI provider API keys are stored only via `secretStore` (OS Keychain) and are write-only from the renderer. All provider calls run in the Main process.
+- New assistant tools must: be declared in `src/shared/aiTools.ts` with a `risk` level, sanitize output through `src/shared/aiSanitize.ts`, require approval for writes/sends, and have tests proving secrets do not appear in results. See [docs/ai-assistant.md](./docs/ai-assistant.md).
+- A value is hidden from the assistant when it is `secret`, `hideFromAi`, or has a credential-like name with a literal value. Decide this with `isEntryHiddenFromAi` (`src/shared/aiSanitize.ts`). Any new place that shows entries to the assistant must use it, and must add hidden values to the scrub list (`collectWorkspaceSecretValues` in `src/renderer/src/aiContextBuilder.ts`).
+- Secrets that only Main holds (keychain vault values, cached OAuth 2.0 tokens) are scrubbed via `collectMainSecretValues` (`src/main/ai/mainSecrets.ts`). A new Main-side secret store must be added there.
+- Changes that could send requests to another host (URL scheme/host edits, URL-valued variables) must set `warning` on the approval request so they always ask, even with auto-apply on. Free-text scrubbing (known key formats, private keys, high-entropy tokens) lives in `redactText` (`src/shared/aiContext.ts`).
+- Provider-specific raw content (for example Claude thinking blocks) stays in Main as the `provider-content` stream event and is replayed unchanged within a turn; it is never forwarded to the renderer. Don't send sampling parameters to models that reject them (`acceptsSamplingParams`).
+
 ## 🚨 CRITICAL: Testing Requirements
 - **Unit Tests are Mandatory:** Whenever you create a new method, function, or UI component—or modify an existing one—you MUST add and update the corresponding unit tests immediately.
 - Use `vitest` for all logic, parser, interpolation, HTTP runner, OAuth 2.0, and state testing.

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, FileText, Lock, Plus, Table, Trash2 } from 'lucide-react';
+import { BotOff, Eye, EyeOff, FileText, Lock, Plus, Table, Trash2 } from 'lucide-react';
 import type { KeyValueEntry } from '../../../shared/collectionSchema';
 import { useTheme } from '../context/ThemeContext';
 
@@ -12,6 +12,8 @@ export interface KeyValueTableProps {
   keySuggestions?: string[];
   showEnabled?: boolean;
   showSecretToggle?: boolean;
+  /** Shows the per-row "Hide from AI" toggle (`hideFromAi`). */
+  showHideFromAiToggle?: boolean;
   showBulkEdit?: boolean;
   testIdPrefix?: string;
   onSecretToggled?: (index: number, entry: KeyValueEntry, isSecret: boolean) => void;
@@ -69,6 +71,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
   keySuggestions = [],
   showEnabled = true,
   showSecretToggle = true,
+  showHideFromAiToggle = true,
   showBulkEdit = true,
   testIdPrefix = 'kv',
   onSecretToggled,
@@ -216,7 +219,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                 <th style={{ padding: '6px 8px', width: '30%' }}>{keyPlaceholder}</th>
                 <th style={{ padding: '6px 8px', width: '38%' }}>{valuePlaceholder}</th>
                 <th style={{ padding: '6px 8px' }}>{descriptionPlaceholder}</th>
-                <th style={{ width: 76, padding: '6px 8px', textAlign: 'right' }}>Actions</th>
+                <th style={{ width: 96, padding: '6px 8px', textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -237,6 +240,7 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
               ) : (
                 entries.map((entry, idx) => {
                   const isSecret = Boolean(entry.secret);
+                  const isHiddenFromAi = Boolean(entry.hideFromAi);
                   const isRevealed = Boolean(revealedRows[idx]);
 
                   return (
@@ -336,6 +340,31 @@ export const KeyValueTable: React.FC<KeyValueTableProps> = ({
                             }}
                           >
                             <Lock size={13} />
+                          </button>
+                        )}
+                        {showHideFromAiToggle && (
+                          <button
+                            type="button"
+                            data-testid={`${testIdPrefix}-hide-ai-toggle-${idx}`}
+                            aria-label={`Toggle hide from AI for row ${idx}`}
+                            aria-pressed={isHiddenFromAi}
+                            title={
+                              isSecret
+                                ? 'Secrets are always hidden from the AI assistant'
+                                : isHiddenFromAi
+                                  ? 'Hidden from the AI assistant'
+                                  : 'Hide from the AI assistant'
+                            }
+                            onClick={() => handleUpdateRow(idx, { hideFromAi: !isHiddenFromAi || undefined })}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: isHiddenFromAi || isSecret ? colors.accent : colors.textMuted,
+                              cursor: 'pointer',
+                              padding: 3,
+                            }}
+                          >
+                            <BotOff size={13} />
                           </button>
                         )}
                         <button

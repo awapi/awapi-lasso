@@ -38,6 +38,16 @@ import type {
   PtyExitEvent,
   TerminalChoices,
 } from '../shared/terminal';
+import type {
+  AiKeyStatus,
+  AiProviderId,
+  AiSendRequest,
+  AiSettings,
+  AiTestConnectionResult,
+  AiToolResult,
+  AiTurnEvent,
+} from '../shared/aiTypes';
+import type { AiSetKeyResult } from '../main/ai/aiIpc';
 import { COLLECTION_OPENED_FROM_OS_CHANNEL } from '../main/osFileAssociation';
 
 export const electronAPI = {
@@ -240,6 +250,32 @@ export const electronAPI = {
     ipcRenderer.on('pty:exit', listener);
     return () => {
       ipcRenderer.removeListener('pty:exit', listener);
+    };
+  },
+
+  /** AI assistant: non-secret settings (API keys are write-only and never returned). */
+  aiGetSettings: () => ipcRenderer.invoke('ai:getSettings') as Promise<AiSettings>,
+  aiSaveSettings: (partial: Partial<AiSettings>) =>
+    ipcRenderer.invoke('ai:saveSettings', partial) as Promise<AiSettings>,
+  /** Whether an API key is stored in the OS Keychain for each provider. */
+  aiGetKeyStatuses: () => ipcRenderer.invoke('ai:getKeyStatuses') as Promise<AiKeyStatus[]>,
+  aiSetKey: (provider: AiProviderId, apiKey: string) =>
+    ipcRenderer.invoke('ai:setKey', provider, apiKey) as Promise<AiSetKeyResult>,
+  aiClearKey: (provider: AiProviderId) =>
+    ipcRenderer.invoke('ai:clearKey', provider) as Promise<boolean>,
+  aiTestConnection: () => ipcRenderer.invoke('ai:testConnection') as Promise<AiTestConnectionResult>,
+  /** Starts a chat turn; streamed output arrives via `onAiEvent` tagged with `request.turnId`. */
+  aiSend: (request: AiSendRequest) =>
+    ipcRenderer.invoke('ai:send', request) as Promise<{ started: boolean }>,
+  aiCancel: (turnId: string) => ipcRenderer.invoke('ai:cancel', turnId) as Promise<boolean>,
+  /** Replies to an `onAiEvent` `tool-call` request with the sanitized result of running the tool. */
+  aiToolResult: (callId: string, result: AiToolResult) =>
+    ipcRenderer.invoke('ai:toolResult', callId, result) as Promise<boolean>,
+  onAiEvent: (callback: (event: AiTurnEvent) => void) => {
+    const listener = (_: unknown, event: AiTurnEvent) => callback(event);
+    ipcRenderer.on('ai:event', listener);
+    return () => {
+      ipcRenderer.removeListener('ai:event', listener);
     };
   },
 

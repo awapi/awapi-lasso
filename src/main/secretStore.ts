@@ -196,6 +196,16 @@ export function deleteSecret(coord: SecretCoordinate, deps: SecretStoreDeps): bo
   return true;
 }
 
+/** Every decryptable value in the vault, across all collections. Used only to scrub AI assistant output. */
+export function listVaultSecretValues(deps: SecretStoreDeps): string[] {
+  const values: string[] = [];
+  for (const stored of Object.values(loadVault(deps).entries)) {
+    const decoded = decodeSecretValue(stored, deps);
+    if (decoded) values.push(decoded);
+  }
+  return values;
+}
+
 /**
  * Returns all secrets for a given `collectionId`, merging OS Keychain vault entries with
  * any optional `<collection>.secrets.awjc` local sidecar overrides.

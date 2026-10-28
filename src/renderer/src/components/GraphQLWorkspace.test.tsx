@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { ThemeProvider } from '../context/ThemeContext';
 import { loadSchemaFromSdl } from '../../../shared/graphqlSchemaLoader';
+import { getGraphqlSchemaForAi } from '../aiGraphqlSchema';
 import type { GraphQLConfig } from '../../../shared/collectionSchema';
 import {
   buildGraphQLCompletionItems,
@@ -170,6 +171,15 @@ describe('GraphQLWorkspace component', () => {
       'designer-checkbox-inventoryItem.name',
     ) as HTMLInputElement;
     expect(nameCheckbox.checked).toBe(true);
+  });
+
+  it('publishes the loaded schema for the AI assistant and clears it on unmount', async () => {
+    const { unmount } = render(<ControlledHarness />);
+    await waitFor(() => {
+      expect(getGraphqlSchemaForAi()?.metadata.typeCount).toBe(bundle.metadata.typeCount);
+    });
+    unmount();
+    expect(getGraphqlSchemaForAi()).toBeNull();
   });
 
   it('shows actionable error banner with Try Again button when introspection fails and recovers on retry', async () => {

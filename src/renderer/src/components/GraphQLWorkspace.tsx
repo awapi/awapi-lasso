@@ -37,6 +37,7 @@ import { useTheme } from '../context/ThemeContext';
 import { ResizableSplitPane } from './ResizableSplitPane';
 import { GraphQLQueryDesigner } from './GraphQLQueryDesigner';
 import { GraphQLSchemaExplorer } from './GraphQLSchemaExplorer';
+import { publishGraphqlSchemaForAi } from '../aiGraphqlSchema';
 
 export interface GraphQLWorkspaceProps {
   graphql: GraphQLConfig;
@@ -396,6 +397,18 @@ export const GraphQLWorkspace: React.FC<GraphQLWorkspaceProps> = ({
     collectionFilePath,
     handleDiscoverSchema,
   ]);
+
+  useEffect(() => {
+    publishGraphqlSchemaForAi(
+      schemaRecord
+        ? { introspection: schemaRecord.introspection, metadata: schemaRecord.metadata }
+        : null,
+    );
+  }, [schemaRecord]);
+
+  useEffect(() => {
+    return () => publishGraphqlSchemaForAi(null);
+  }, []);
 
   useEffect(() => {
     return () => {

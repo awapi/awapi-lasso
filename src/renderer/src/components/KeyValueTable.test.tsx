@@ -62,3 +62,27 @@ describe('KeyValueTable', () => {
     expect(onDeleteSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('KeyValueTable hide-from-AI toggle', () => {
+  it('toggles hideFromAi on a row without touching the secret flag', () => {
+    const onChange = vi.fn();
+    const entries: KeyValueEntry[] = [{ key: 'X-Tenant', value: 'acme', enabled: true }];
+    const { rerender } = render(<KeyValueTable entries={entries} onChange={onChange} testIdPrefix="t" />);
+    const toggle = screen.getByTestId('t-hide-ai-toggle-0');
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenLastCalledWith([{ key: 'X-Tenant', value: 'acme', enabled: true, hideFromAi: true }]);
+
+    rerender(<KeyValueTable entries={[{ ...entries[0], hideFromAi: true }]} onChange={onChange} testIdPrefix="t" />);
+    expect(screen.getByTestId('t-hide-ai-toggle-0')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByTestId('t-hide-ai-toggle-0'));
+    expect(onChange.mock.calls.at(-1)?.[0][0].hideFromAi).toBeUndefined();
+  });
+
+  it('can be turned off', () => {
+    render(
+      <KeyValueTable entries={[{ key: 'a', value: 'b', enabled: true }]} onChange={vi.fn()} showHideFromAiToggle={false} testIdPrefix="t" />,
+    );
+    expect(screen.queryByTestId('t-hide-ai-toggle-0')).not.toBeInTheDocument();
+  });
+});

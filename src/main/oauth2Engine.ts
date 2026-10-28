@@ -272,6 +272,17 @@ export function clearCachedOAuth2Token(
   return hadMem || hadVault;
 }
 
+/** Token strings (access, refresh, id) held in the in-memory cache. Used only to scrub AI assistant output. */
+export function listCachedOAuth2TokenValues(): string[] {
+  const values: string[] = [];
+  for (const token of memoryTokenCache.values()) {
+    for (const value of [token.accessToken, token.refreshToken, token.idToken]) {
+      if (value) values.push(value);
+    }
+  }
+  return values;
+}
+
 /**
  * Clears all in-memory cached OAuth 2.0 tokens (useful for test isolation).
  */

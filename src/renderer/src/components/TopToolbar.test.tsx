@@ -194,4 +194,35 @@ describe('TopToolbar', () => {
     fireEvent.keyDown(window, { key: ',', ctrlKey: true });
     expect(onOpenPreferences).toHaveBeenCalledTimes(1);
   });
+
+  it('shows the AI assistant toggle only when wired, reflects state, and supports Cmd/Ctrl+Shift+A', () => {
+    const onToggleAiPanel = vi.fn();
+    const baseProps = {
+      environments: [],
+      onSelectEnvironment: vi.fn(),
+      onOpenEnvironmentManager: vi.fn(),
+      onOpenPreferences: vi.fn(),
+    };
+    const { rerender } = render(
+      <ThemeProvider>
+        <TopToolbar {...baseProps} />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByTestId('toggle-ai-panel-btn')).not.toBeInTheDocument();
+
+    rerender(
+      <ThemeProvider>
+        <TopToolbar {...baseProps} aiPanelOpen onToggleAiPanel={onToggleAiPanel} />
+      </ThemeProvider>,
+    );
+    const button = screen.getByTestId('toggle-ai-panel-btn');
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(button);
+    expect(onToggleAiPanel).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: 'A', metaKey: true, shiftKey: true });
+    expect(onToggleAiPanel).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(window, { key: 'a', metaKey: true });
+    expect(onToggleAiPanel).toHaveBeenCalledTimes(2);
+  });
 });

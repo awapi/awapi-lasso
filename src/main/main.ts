@@ -132,6 +132,8 @@ import { PtyManager } from './ptyManager';
 import { nextZoomLevel, type ZoomAction } from './zoom';
 import { WindowCloseGuard } from './closeGuard';
 import type { PtyCreateOptions } from '../shared/terminal';
+import { AI_EVENT_CHANNEL, registerAiIpc } from './ai/aiIpc';
+import { collectMainSecretValues } from './ai/mainSecrets';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -999,6 +1001,24 @@ function registerIpcHandlers(): void {
     (_event, collectionId: string, options?: { collectionFilePath?: string }) =>
       getAllCollectionSecrets(collectionId, buildSecretStoreDeps(), options),
   );
+
+  registerAiIpc(ipcMain, {
+    secretDeps: buildSecretStoreDeps(),
+    fsDeps: {
+      userDataDir: app.getPath('userData'),
+      exists: p => fs.existsSync(p),
+      readFile: p => fs.readFileSync(p, 'utf-8'),
+      writeFile: (p, content) => fs.writeFileSync(p, content, 'utf-8'),
+      mkdir: p => fs.mkdirSync(p, { recursive: true }),
+      joinPath: (...parts) => join(...parts),
+    },
+    sendEvent: (turnEvent, origin) => {
+      const sender = (origin as Electron.IpcMainInvokeEvent | undefined)?.sender;
+      const target = sender && !sender.isDestroyed() ? sender : mainWindow?.webContents;
+      if (target && !target.isDestroyed()) target.send(AI_EVENT_CHANNEL, turnEvent);
+    },
+    getMainSecretValues: () => collectMainSecretValues(buildSecretStoreDeps()),
+  });
 
   ipcMain.handle('http:send', (_event, request: PreparedHttpRequest) =>
     executeHttpRequest(request, buildHttpEngineDeps()),
