@@ -19,6 +19,7 @@ describe('AI tool definitions', () => {
     expect(getAiTool('get_graphql_schema')?.risk).toBe('read');
     expect(getAiTool('validate_graphql_query')?.risk).toBe('read');
     expect(getAiTool('update_request')?.risk).toBe('write');
+    expect(getAiTool('update_graphql_operation')?.risk).toBe('write');
     expect(getAiTool('create_request')?.risk).toBe('write');
     expect(getAiTool('set_environment_variables')?.risk).toBe('write');
     expect(getAiTool('send_request')?.risk).toBe('run');

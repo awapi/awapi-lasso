@@ -101,6 +101,13 @@ const noToolSupport = new Set<string>();
 export const CHAT_ONLY_NOTICE =
   "(This model doesn't support tool calling, so I can't read or edit your workspace. Answering from the shared context only.)\n\n";
 
+/** Provider stop reasons meaning the reply was cut off by the output token limit (OpenAI / Anthropic). */
+const OUTPUT_LIMIT_STOP_REASONS: ReadonlySet<string> = new Set(['length', 'max_tokens']);
+
+export function outputLimitNotice(maxTokens: number): string {
+  return `\n\n(Stopped: the model reached the Max tokens limit (${maxTokens}) before finishing its reply. Reasoning models can use much of it for thinking; raise Max tokens in AI settings and try again.)`;
+}
+
 const TOOLS_UNSUPPORTED_PATTERN =
   /(does ?n[o']t|do not|not|un)\s*support(ed)?\b.{0,60}\b(tools?|tool[ _]?(use|calling|calls|choice)|function[ _]?call(ing|s)?|functions)\b|\b(tools?|tool[ _]?(use|calling|choice)|function[ _]?call(ing|s)?|functions)\b.{0,60}\b(is|are)?\s*(not supported|unsupported)|tool[ _]?choice\b.{0,20}\brequires\b/i;
 
@@ -413,6 +420,15 @@ export async function runAiTurn(request: AiSendRequest, deps: AiServiceDeps): Pr
         controller.signal.removeEventListener('abort', forwardAbort);
       }
       if (roundText) emittedText = true;
+
+      // Retrying with the same budget just truncates again (reasoning models spend much of it thinking).
+      const hitOutputLimit = stopReason !== undefined && OUTPUT_LIMIT_STOP_REASONS.has(stopReason);
+      if (hitOutputLimit && (calls.length === 0 || calls.some(c => c.argumentsError))) {
+        emit({ type: 'text-delta', text: outputLimitNotice(settings.maxTokens) });
+        emitTranscript();
+        emit({ type: 'done', stopReason });
+        return;
+      }
 
       if (calls.length === 0 || !toolsEnabled) {
         emitTranscript();

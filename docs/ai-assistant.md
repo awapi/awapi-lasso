@@ -60,7 +60,8 @@ The assistant works only through a fixed set of tools. Each tool call appears as
 | `list_environments` | Environments and collection variables (secret values never shown) | none |
 | `get_graphql_schema`, `validate_graphql_query` | Read the GraphQL schema loaded for the active request; validate a query against it | none |
 | `load_graphql_schema` | Discover the active GraphQL request's schema (introspection, falling back to its local schema file) | asks first (sends a request) |
-| `update_request` | Edit any request field **except auth** | asks first |
+| `update_request` | Edit any request field **except auth**. Edits that change nothing are rejected without asking | asks first |
+| `update_graphql_operation` | Replace a GraphQL request's query, variables and/or operation name. It takes flat parameters, which local models fill in more reliably than fields nested inside `update_request`'s `changes` | asks first |
 | `create_request` | Add a request to a collection or folder | asks first |
 | `set_environment_variables` | Add or change **non-secret** variables | asks first |
 | `send_request` | Send the active request (a real network call) | asks first |

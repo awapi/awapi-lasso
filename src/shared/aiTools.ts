@@ -53,7 +53,8 @@ const requestFields = {
   },
   graphql: {
     type: 'object',
-    description: 'GraphQL operation fields (only for protocol "graphql").',
+    description:
+      'GraphQL operation fields (only for protocol "graphql"). To edit an existing request\'s query, prefer update_graphql_operation.',
     properties: {
       query: { type: 'string' },
       variables: { type: 'string', description: 'JSON object text.' },
@@ -168,7 +169,7 @@ export const AI_TOOLS: readonly AiToolDefinition[] = [
     name: 'validate_graphql_query',
     risk: 'read',
     description:
-      'Validate a GraphQL query/mutation (and optional variables JSON) against the loaded schema. Returns errors with line/column; fix them and validate again before proposing the query with update_request.',
+      'Validate a GraphQL query/mutation (and optional variables JSON) against the loaded schema. Returns errors with line/column; fix them and validate again before proposing the query with update_graphql_operation.',
     parameters: {
       type: 'object',
       properties: {
@@ -200,6 +201,22 @@ export const AI_TOOLS: readonly AiToolDefinition[] = [
         changes: { type: 'object', properties: requestFields },
       },
       required: ['changes'],
+    },
+  },
+  {
+    // Flat string parameters: some local models/servers drop multi-line strings nested inside `changes`.
+    name: 'update_graphql_operation',
+    risk: 'write',
+    description:
+      'Replace the GraphQL query, variables and/or operationName of a GraphQL request. Prefer this over update_request for GraphQL. Pass the complete new query document, not a fragment. The user is asked to approve the edit.',
+    parameters: {
+      type: 'object',
+      properties: {
+        requestId: requestIdProp,
+        query: { type: 'string', description: 'The complete GraphQL document (query or mutation).' },
+        variables: { type: 'string', description: 'JSON object text, e.g. {"id": "1"}.' },
+        operationName: { type: 'string' },
+      },
     },
   },
   {

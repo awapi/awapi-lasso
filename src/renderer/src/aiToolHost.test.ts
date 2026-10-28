@@ -305,6 +305,59 @@ describe('write tools', () => {
     expect(calls.updateRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects no-op edits without asking, and reports which fields changed', async () => {
+    const { host, calls } = makeHost();
+    const noop = await executeAiTool(call('update_request', { changes: { name: 'Active' } }), host);
+    expect(noop).toMatchObject({ ok: false, content: expect.stringContaining('No changes') });
+    expect(calls.requestApproval).not.toHaveBeenCalled();
+
+    const r = parse(await executeAiTool(call('update_request', { changes: { name: 'Active', url: '{{baseUrl}}/v2' } }), host));
+    expect(r.changed).toEqual(['Url']);
+  });
+
+  it('update_graphql_operation edits the GraphQL fields through the same approval path', async () => {
+    const { host, calls } = makeHost();
+    const query = 'query GetPart($sku: ID!) {\n  part(sku: $sku) { name sku }\n}';
+    const r = await executeAiTool(
+      call('update_graphql_operation', { requestId: 'req_gql', query, variables: '{"sku": "SKU-1"}', operationName: 'GetPart' }),
+      host,
+    );
+    expect(calls.requestApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: 'update_graphql_operation', risk: 'write', title: 'Edit request "GQL"' }),
+    );
+    expect(parse(r).changed).toEqual(['GraphQL query', 'GraphQL variables', 'GraphQL operationName']);
+    const [id, next] = calls.updateRequest.mock.calls[0] as [string, RequestItem];
+    expect(id).toBe('req_gql');
+    expect(next.graphql).toMatchObject({ query, variables: '{"sku": "SKU-1"}', operationName: 'GetPart' });
+  });
+
+  it('update_graphql_operation rejects empty, non-GraphQL and secret-bearing edits before asking', async () => {
+    const { host, calls } = makeHost();
+    expect(await executeAiTool(call('update_graphql_operation', { requestId: 'req_gql' }), host)).toMatchObject({ ok: false });
+    expect(await executeAiTool(call('update_graphql_operation', { requestId: 'req_gql', query: '  ' }), host)).toMatchObject({ ok: false });
+    expect(await executeAiTool(call('update_graphql_operation', { query: '{ a }' }), host)).toMatchObject({
+      ok: false,
+      content: expect.stringContaining('only apply to GraphQL requests'),
+    });
+    const placeholder = await executeAiTool(
+      call('update_graphql_operation', { requestId: 'req_gql', variables: '{"token": "[REDACTED]"}' }),
+      host,
+    );
+    expect(placeholder).toMatchObject({ ok: false, content: expect.stringContaining('[REDACTED]') });
+    expect(calls.requestApproval).not.toHaveBeenCalled();
+    expect(calls.updateRequest).not.toHaveBeenCalled();
+  });
+
+  it('update_graphql_operation results never echo workspace secrets', async () => {
+    const { host } = makeHost();
+    const r = await executeAiTool(
+      call('update_graphql_operation', { requestId: 'req_gql', query: `{ me(note: "${SECRET}") { id } }` }),
+      host,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.content).not.toContain(SECRET);
+  });
+
   it('create_request validates the folder, asks approval, and adds the request', async () => {
     const { host, calls } = makeHost();
     const r = await executeAiTool(

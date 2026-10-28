@@ -197,6 +197,49 @@ function collectionForPath(host: AiToolHost, filePath: string | null): AwjcColle
 
 const DECLINED = 'The user declined this action. Do not retry it unchanged; ask what they would like instead.';
 
+/** Validates, previews and (after approval) applies request edits; shared by update_request and update_graphql_operation. */
+async function editRequest(
+  call: AiToolCall,
+  host: AiToolHost,
+  requestId: unknown,
+  changes: unknown,
+  secrets: readonly string[],
+): Promise<AiToolResult> {
+  const ws = host.workspace;
+  const found = resolveRequest(host, requestId);
+  if (typeof found === 'string') return fail(found);
+  const applied = applyRequestChanges(found.request, changes);
+  if (!applied.ok) return fail(applied.error);
+  const title = `Edit request "${found.request.name}"`;
+  const owner = collectionForPath(host, found.collectionPath);
+  const riskyCaptures = changedHostCaptures(
+    found.request.captures,
+    applied.value.captures,
+    owner ? hostVariableNames(owner) : new Set(),
+  );
+  const fieldChanges = describeRequestChanges(found.request, applied.value, secrets);
+  const approved = await approve(host, {
+    tool: call.name,
+    risk: 'write',
+    title,
+    lines: applied.summary,
+    changes: fieldChanges,
+    ...warningFor(
+      changesUrlOrigin(found.request.url, applied.value.url) && HOST_CHANGE_WARNING,
+      riskyCaptures.length > 0 && captureWarning(riskyCaptures),
+    ),
+  });
+  if (!approved) return fail(DECLINED);
+  ws.updateRequest(found.request.id, applied.value);
+  const previous = found.request;
+  host.onApplied?.({ tool: call.name, title, undo: () => ws.updateRequest(previous.id, previous) });
+  return ok({
+    updated: true,
+    changed: fieldChanges.map(c => c.field),
+    request: sanitizeRequestForAi(applied.value, secrets),
+  });
+}
+
 async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult> {
   const ws = host.workspace;
   const args = call.arguments;
@@ -321,34 +364,17 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
       return described.ok ? ok({ loaded: true, schema: described.value }) : fail(described.error);
     }
 
-    case 'update_request': {
-      const found = resolveRequest(host, args.requestId);
-      if (typeof found === 'string') return fail(found);
-      const applied = applyRequestChanges(found.request, args.changes);
-      if (!applied.ok) return fail(applied.error);
-      const title = `Edit request "${found.request.name}"`;
-      const owner = collectionForPath(host, found.collectionPath);
-      const riskyCaptures = changedHostCaptures(
-        found.request.captures,
-        applied.value.captures,
-        owner ? hostVariableNames(owner) : new Set(),
-      );
-      const approved = await approve(host, {
-        tool: call.name,
-        risk: 'write',
-        title,
-        lines: applied.summary,
-        changes: describeRequestChanges(found.request, applied.value, secrets),
-        ...warningFor(
-          changesUrlOrigin(found.request.url, applied.value.url) && HOST_CHANGE_WARNING,
-          riskyCaptures.length > 0 && captureWarning(riskyCaptures),
-        ),
-      });
-      if (!approved) return fail(DECLINED);
-      ws.updateRequest(found.request.id, applied.value);
-      const previous = found.request;
-      host.onApplied?.({ tool: call.name, title, undo: () => ws.updateRequest(previous.id, previous) });
-      return ok({ updated: true, request: sanitizeRequestForAi(applied.value, secrets) });
+    case 'update_request':
+      return editRequest(call, host, args.requestId, args.changes, secrets);
+
+    case 'update_graphql_operation': {
+      const graphql: Record<string, unknown> = {};
+      for (const f of ['query', 'variables', 'operationName'] as const) {
+        if (args[f] !== undefined) graphql[f] = args[f];
+      }
+      if (Object.keys(graphql).length === 0) return fail('Pass at least one of query, variables or operationName.');
+      if (typeof graphql.query === 'string' && graphql.query.trim() === '') return fail('query must not be empty.');
+      return editRequest(call, host, args.requestId, { graphql }, secrets);
     }
 
     case 'create_request': {

@@ -272,6 +272,26 @@ describe('applyRequestChanges', () => {
     expect(r.ok && r.value.graphql?.variables).toBe(gql.graphql?.variables);
   });
 
+  it('rejects edits that change nothing, naming the fields that were sent', () => {
+    const gql = createDefaultGraphQLRequest();
+    gql.graphql = { query: '{ me { id } }', variables: '{}', operationName: 'Me' };
+    gql.assertions = [{ target: 'status', operator: 'equals', expected: 200, enabled: true }];
+    const r = applyRequestChanges(gql, {
+      graphql: { operationName: 'Me' },
+      assertions: [{ operator: 'equals', expected: 200, target: 'status' }],
+    });
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining('No changes: graphql.operationName, assertions') });
+    expect(!r.ok && r.error).toContain('graphql.query');
+    expect(applyRequestChanges(base, { name: base.name })).toMatchObject({ ok: false, error: expect.stringContaining('name already has') });
+  });
+
+  it('summarizes only the fields whose values change', () => {
+    const gql = createDefaultGraphQLRequest();
+    gql.graphql = { query: '{ me { id } }', variables: '{}', operationName: 'Me' };
+    const r = applyRequestChanges(gql, { graphql: { query: '{ me { name } }', operationName: 'Me' }, assertions: [] });
+    expect(r.ok && r.summary).toEqual(['GraphQL query updated']);
+  });
+
   it('validates captures and assertions', () => {
     const r = applyRequestChanges(base, {
       captures: [{ variable: 'id', scope: 'runtime', source: 'jsonpath', expression: '$.id' }],

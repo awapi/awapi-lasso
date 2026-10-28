@@ -103,6 +103,7 @@ const TOOL_LABELS: Record<string, string> = {
   validate_graphql_query: 'Validated a GraphQL query',
   open_request: 'Opened a request',
   update_request: 'Edited a request',
+  update_graphql_operation: 'Edited a GraphQL query',
   create_request: 'Created a request',
   set_environment_variables: 'Edited variables',
   send_request: 'Sent the request',

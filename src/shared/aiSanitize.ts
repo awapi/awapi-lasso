@@ -496,6 +496,7 @@ export function applyRequestChanges(request: RequestItem, changes: unknown): AiR
       if (g[f] === undefined) continue;
       const err = checkText(`graphql.${f}`, g[f]);
       if (err) return fail(err);
+      if (graphql[f] === g[f]) continue;
       graphql[f] = g[f] as string;
       summary.push(`GraphQL ${f} updated`);
     }
@@ -505,17 +506,55 @@ export function applyRequestChanges(request: RequestItem, changes: unknown): AiR
   if (changes.captures !== undefined) {
     const parsed = parseCaptures(changes.captures);
     if (!parsed.ok) return parsed;
-    next = { ...next, captures: parsed.value };
-    summary.push(`Captures replaced (${parsed.value.length})`);
+    if (!sameJson(parsed.value, request.captures ?? [])) {
+      next = { ...next, captures: parsed.value };
+      summary.push(`Captures replaced (${parsed.value.length})`);
+    }
   }
   if (changes.assertions !== undefined) {
     const parsed = parseAssertions(changes.assertions);
     if (!parsed.ok) return parsed;
-    next = { ...next, assertions: parsed.value };
-    summary.push(`Assertions replaced (${parsed.value.length})`);
+    if (!sameJson(parsed.value, request.assertions ?? [])) {
+      next = { ...next, assertions: parsed.value };
+      summary.push(`Assertions replaced (${parsed.value.length})`);
+    }
+  }
+
+  // A no-op edit would still ask the user to approve it; weaker models then loop on "fixing" it.
+  if (sameJson(next, request)) {
+    const sent = describeSentFields(changes);
+    return fail(
+      `No changes: ${sent.join(', ')} already ${sent.length === 1 ? 'has' : 'have'} the values you sent, so nothing was edited. ` +
+        'Read the request again with get_request and send only fields whose values differ. To replace a GraphQL query, send the full new document as graphql.query (or use update_graphql_operation).',
+    );
   }
 
   return { ok: true, value: next, summary };
+}
+
+/** Structural equality, ignoring object key order. */
+function sameJson(a: unknown, b: unknown): boolean {
+  return stableJson(a) === stableJson(b);
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .filter(k => value[k] !== undefined)
+      .sort()
+      .map(k => `${JSON.stringify(k)}:${stableJson(value[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** Field names the model sent, e.g. `graphql.operationName`, for error messages. */
+function describeSentFields(changes: Record<string, unknown>): string[] {
+  return Object.keys(changes).flatMap(key => {
+    const value = changes[key];
+    return key === 'graphql' && isRecord(value) ? Object.keys(value).map(f => `graphql.${f}`) : [key];
+  });
 }
 
 /** Builds a new request from an assistant spec using the same validation as edits. */

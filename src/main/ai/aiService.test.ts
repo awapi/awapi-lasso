@@ -14,6 +14,7 @@ import {
   resetToolSupportCache,
   cancelAiTurn,
   listAiModels,
+  outputLimitNotice,
   resolveAiToolResult,
   runAiTurn,
   testAiConnection,
@@ -361,6 +362,27 @@ describe('runAiTurn tool loop', () => {
     await respondUntilDone(turn, events, () => ({ ok: true, content: '{}' }));
     expect(eventsOf(events).filter(e => e.type === 'tool-call')).toHaveLength(MAX_TOOL_ROUNDS);
     expect(eventsOf(events).at(-1)).toEqual({ type: 'done', stopReason: 'max_tool_rounds' });
+  });
+
+  it('stops instead of retrying when the output limit truncates a tool call or the whole reply', async () => {
+    const truncated: AiStreamEvent = {
+      type: 'tool-call',
+      call: { id: 'c', name: 'update_request', arguments: {}, argumentsError: 'Tool arguments were not valid JSON.' },
+    };
+    for (const [turnId, round] of [
+      ['tl-len1', [truncated, { type: 'done', stopReason: 'length' }]],
+      ['tl-len2', [{ type: 'done', stopReason: 'max_tokens' }]],
+    ] as Array<[string, AiStreamEvent[]]>) {
+      const seen: AiLlmMessage[][] = [];
+      const { deps, events, secretDeps, fsDeps } = createDeps(toolStream([round], seen));
+      setAiKey('openai', 'sk-1', secretDeps);
+      saveAiSettings({ maxTokens: 2048 }, fsDeps);
+      await runAiTurn({ turnId, toolsEnabled: true, messages: [{ role: 'user', content: 'x' }] }, deps);
+      expect(seen).toHaveLength(1);
+      expect(eventsOf(events).some(e => e.type === 'tool-call')).toBe(false);
+      expect(eventsOf(events)).toContainEqual({ type: 'text-delta', text: outputLimitNotice(2048) });
+      expect(eventsOf(events).at(-1)).toMatchObject({ type: 'done' });
+    }
   });
 
   it('cancels while waiting on a tool and times out silent tools', async () => {
