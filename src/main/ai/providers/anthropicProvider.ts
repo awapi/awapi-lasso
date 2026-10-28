@@ -4,8 +4,10 @@ import {
   AiProviderError,
   describeHttpError,
   joinUrl,
+  parseModelIds,
   parseToolArguments,
   responseBodyChunks,
+  type ListModelsRequest,
   type ProviderRequest,
   type ProviderStreamEvent,
 } from './types';
@@ -175,4 +177,21 @@ export async function* streamAnthropicChat(
   const content = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(([, block]) => block);
   if (content.length > 0) yield { type: 'provider-content', content };
   yield { type: 'done', stopReason };
+}
+
+/** Lists Claude models from `GET {baseUrl}/models`, newest first as the API returns them. */
+export async function listAnthropicModels(request: ListModelsRequest): Promise<string[]> {
+  const doFetch = request.fetchImpl ?? fetch;
+  if (!request.apiKey) {
+    throw new AiProviderError('No Anthropic API key is configured. Add one in AI settings.');
+  }
+  const response = await doFetch(`${joinUrl(request.baseUrl, '/models')}?limit=1000`, {
+    method: 'GET',
+    headers: { Accept: 'application/json', 'x-api-key': request.apiKey, 'anthropic-version': ANTHROPIC_VERSION },
+    signal: request.signal,
+  });
+  if (!response.ok) {
+    throw describeHttpError(response.status, await response.text().catch(() => ''), 'Anthropic');
+  }
+  return parseModelIds(await response.json().catch(() => null));
 }

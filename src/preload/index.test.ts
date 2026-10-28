@@ -36,6 +36,7 @@ describe('AI assistant bridge', () => {
     ['aiSetKey', 'ai:setKey', ['openai', 'sk-test']],
     ['aiClearKey', 'ai:clearKey', ['openai']],
     ['aiTestConnection', 'ai:testConnection', []],
+    ['aiListModels', 'ai:listModels', []],
     ['aiSend', 'ai:send', [{ turnId: 't', messages: [] }]],
     ['aiCancel', 'ai:cancel', ['t']],
     ['aiToolResult', 'ai:toolResult', ['t::c', { ok: true, content: '{}' }]],

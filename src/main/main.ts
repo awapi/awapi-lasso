@@ -10,6 +10,7 @@ import {
   Menu,
   safeStorage,
   webContents,
+  net,
   type MenuItemConstructorOptions,
 } from 'electron';
 
@@ -1018,6 +1019,8 @@ function registerIpcHandlers(): void {
       if (target && !target.isDestroyed()) target.send(AI_EVENT_CHANNEL, turnEvent);
     },
     getMainSecretValues: () => collectMainSecretValues(buildSecretStoreDeps()),
+    // Chromium's network stack: OS proxy settings (incl. PAC) and the OS certificate store.
+    fetchImpl: (input, init) => net.fetch(input instanceof URL ? input.toString() : input, init),
   });
 
   ipcMain.handle('http:send', (_event, request: PreparedHttpRequest) =>

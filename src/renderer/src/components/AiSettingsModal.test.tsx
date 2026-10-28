@@ -19,6 +19,7 @@ function mockApi(hasKey = false) {
     aiSetKey: vi.fn().mockResolvedValue({ ok: true }),
     aiClearKey: vi.fn().mockResolvedValue(true),
     aiTestConnection: vi.fn().mockResolvedValue({ ok: true, message: 'Connected to OpenAI using gpt.' }),
+    aiListModels: vi.fn().mockResolvedValue({ ok: true, models: ['gpt-4.1', 'gpt-5'] }),
   };
   window.electronAPI = api as unknown as Window['electronAPI'];
   return api;
@@ -121,6 +122,37 @@ describe('AiSettingsModal', () => {
     await waitFor(() =>
       expect(screen.getByTestId('ai-settings-feedback')).toHaveTextContent('rejected the API key'),
     );
+  });
+
+  it('loads models as suggestions for the current provider while keeping the field free text', async () => {
+    const api = mockApi();
+    renderModal();
+    await waitFor(() => screen.getByTestId('ai-load-models-btn'));
+    expect(screen.getByTestId('ai-model-input')).toHaveAttribute('list', 'ai-model-options');
+    fireEvent.click(screen.getByTestId('ai-load-models-btn'));
+    await waitFor(() => expect(screen.getByTestId('ai-settings-feedback')).toHaveTextContent('Loaded 2 models.'));
+    expect(api.aiSaveSettings).toHaveBeenCalled();
+    const options = () =>
+      Array.from(screen.getByTestId('ai-model-options').querySelectorAll('option')).map(o => o.value);
+    expect(options()).toEqual(['gpt-4.1', 'gpt-5']);
+
+    fireEvent.change(screen.getByTestId('ai-model-input'), { target: { value: 'my-custom-model' } });
+    expect(screen.getByTestId('ai-model-input')).toHaveValue('my-custom-model');
+
+    fireEvent.change(screen.getByTestId('ai-provider-select'), { target: { value: 'anthropic' } });
+    expect(options()).toEqual([]);
+  });
+
+  it('shows the error when models cannot be listed', async () => {
+    const api = mockApi();
+    api.aiListModels.mockResolvedValue({ ok: false, message: 'No OpenAI API key is configured.' });
+    renderModal();
+    await waitFor(() => screen.getByTestId('ai-load-models-btn'));
+    fireEvent.click(screen.getByTestId('ai-load-models-btn'));
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-settings-feedback')).toHaveTextContent('No OpenAI API key is configured.'),
+    );
+    expect(screen.getByTestId('ai-model-options').querySelectorAll('option')).toHaveLength(0);
   });
 
   it('closes on Cancel without saving', async () => {

@@ -18,7 +18,7 @@ Toggle it with the ✨ toolbar button or **Cmd/Ctrl+Shift+A**. Nothing is sent a
    - **OpenAI**
    - **Anthropic (Claude)**
    - **OpenAI-compatible**: any server that speaks the OpenAI Chat Completions API (LM Studio, Ollama, OpenRouter, Azure OpenAI, Groq, …). Set the base URL; the API key is optional for local servers.
-3. Enter the model name and your API key, then click **Test connection** and **Save**.
+3. Enter your API key, then pick a model: type its id, or click **Load models** to get the list from the provider (best effort; any id can still be typed). Click **Test connection** and **Save**.
 
 Example for a local **LM Studio** server (Developer tab → Start Server):
 
@@ -26,11 +26,13 @@ Example for a local **LM Studio** server (Developer tab → Start Server):
 |---|---|
 | Provider | OpenAI-compatible |
 | Base URL | `http://localhost:1234/v1` |
-| Model | a model id from `http://localhost:1234/v1/models` that supports tool calling (for example a Qwen 3.x model) |
+| Model | click **Load models**, or type a model id from `http://localhost:1234/v1/models`, that supports tool calling (for example a Qwen 3.x model) |
 | API key | leave empty |
 | Max output tokens | `4096` or more (thinking models spend tokens on reasoning) |
 
 Ollama's default base URL is `http://localhost:11434/v1`.
+
+**Proxies and corporate certificates.** AI calls go through Chromium's network stack (Electron `net.fetch`), so they use your OS proxy settings (including PAC / auto-config) and trust the certificates in your OS certificate store. If your company inspects TLS, install its root CA in the OS trust store (Keychain Access on macOS, the Windows certificate store, or the NSS database on Linux). TLS verification for AI calls cannot be turned off, and the *Verify SSL* preference for requests does not apply to them.
 
 Defaults: Anthropic uses `claude-opus-5-5`, and *Max output tokens* is `8192`. Claude 4.7+ and Claude 5-family models reject sampling parameters, so the *Temperature* setting is not sent to them. Their reasoning ("thinking") is kept within a turn so tool calls continue correctly; it is never shown in the chat or sent to the renderer. If Claude declines a request, the chat says so.
 
@@ -117,7 +119,12 @@ Layers, applied in this order:
 ### Controls you have
 
 - **Approvals:** edits and sends ask first by default (Apply / Decline). A declined action is reported to the model so it does not retry unchanged.
-- **Host changes always ask.** An edit that points a request at a different scheme or host, or changes a URL-valued variable such as `baseUrl`, shows a warning and needs your approval even when *Apply assistant edits without asking* is on.
+- **Host changes always ask.** These show a warning and need your approval even when *Apply assistant edits without asking* is on:
+  - an edit that points a request at a different scheme or host;
+  - a new request whose host no other request in the collection uses (new requests inherit the collection auth);
+  - changing or switching off a variable that decides where requests go (`baseUrl`, a bare `{{host}}` in a URL, any URL-valued variable, or a variable those reference), in any scope;
+  - a response capture that writes into such a variable.
+- **The first send to each host asks.** The send approval shows the host the request will really go to, resolved with your variables (`Send GET {{baseUrl}}/users → https://api.example.com`). The first time the assistant sends to a host in a chat, it asks with a warning even when the send confirmation is off.
 - **Hide from AI:** the robot-off icon next to the lock in variable, header, param and form tables hides that value from the assistant while still saving it in the file.
 - **Unsaved edits:** applied edits are not written to disk until you save, so you can review or discard them.
 - **Settings:** *Ask before the assistant sends requests*, *Apply assistant edits without asking*, *Share non-secret environment values*.
@@ -147,7 +154,8 @@ Please read these before using the assistant on sensitive APIs:
 | Problem | What to check |
 |---|---|
 | "rejected the API key" | Re-enter the key in AI settings; confirm it matches the selected provider |
-| "returned 404" | Model name or base URL is wrong. For local servers, list models at `<base URL>/models` |
+| "returned 404" | Model name or base URL is wrong. Click **Load models** to see the ids the server offers |
+| Connection fails only on a work network | A proxy or TLS inspection is in the way. Check the OS proxy settings and install the company root CA in the OS certificate store |
 | Test connection times out | The local server is not running or is still loading the model; retry after it loads |
 | "stopped responding (no data for 180 s)" | The provider sent nothing for 3 minutes during a turn, so it was aborted. Check the server, or use a smaller context or model |
 | Answers cut off or empty | Raise *Max output tokens* (thinking models need more) and the model's context length (8192 or more) |

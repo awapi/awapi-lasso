@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AiStreamEvent } from '../../../shared/aiTypes';
-import { buildOpenAiBody, streamOpenAiChat, streamOpenAiCompatibleChat, toOpenAiMessages } from './openaiProvider';
+import {
+  buildOpenAiBody,
+  listOpenAiCompatibleModels,
+  listOpenAiModels,
+  streamOpenAiChat,
+  streamOpenAiCompatibleChat,
+  toOpenAiMessages,
+} from './openaiProvider';
 import { AiProviderError, type ProviderRequest } from './types';
 
 function sseResponse(frames: string[], status = 200): Response {
@@ -157,5 +164,49 @@ describe('openai provider', () => {
 
   it('omits the tools field when none are given', () => {
     expect(buildOpenAiBody(baseRequest(), true)).not.toHaveProperty('tools');
+  });
+});
+
+describe('openai model listing', () => {
+  const jsonResponse = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+  it('lists chat models from OpenAI, sorted, without embedding/audio/image models', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: [
+          { id: 'gpt-5' },
+          { id: 'text-embedding-3-small' },
+          { id: 'whisper-1' },
+          { id: 'gpt-4o-mini-tts' },
+          { id: 'dall-e-3' },
+          { id: 'gpt-4.1' },
+          { id: 'omni-moderation-latest' },
+        ],
+      }),
+    );
+    const models = await listOpenAiModels({ apiKey: 'sk-test', baseUrl: 'https://api.openai.com/v1/', fetchImpl });
+    expect(models).toEqual(['gpt-4.1', 'gpt-5']);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.openai.com/v1/models');
+    expect(init.method).toBe('GET');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test');
+  });
+
+  it('keeps every model from compatible servers and sends no key when none is set', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ id: 'qwen3' }, { id: 'nomic-embed-text' }] }));
+    const models = await listOpenAiCompatibleModels({ apiKey: null, baseUrl: 'http://localhost:11434/v1', fetchImpl });
+    expect(models).toEqual(['nomic-embed-text', 'qwen3']);
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
+  it('maps HTTP errors and tolerates non-JSON bodies', async () => {
+    const failing = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'bad key' } }, 401));
+    await expect(listOpenAiModels({ apiKey: 'sk', baseUrl: 'https://api.openai.com/v1', fetchImpl: failing })).rejects.toThrow(
+      /rejected the API key/,
+    );
+    const html = vi.fn().mockResolvedValue(new Response('<html>', { status: 200 }));
+    await expect(listOpenAiCompatibleModels({ apiKey: null, baseUrl: 'http://x/v1', fetchImpl: html })).resolves.toEqual([]);
   });
 });

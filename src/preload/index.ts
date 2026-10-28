@@ -40,6 +40,7 @@ import type {
 } from '../shared/terminal';
 import type {
   AiKeyStatus,
+  AiListModelsResult,
   AiProviderId,
   AiSendRequest,
   AiSettings,
@@ -264,6 +265,8 @@ export const electronAPI = {
   aiClearKey: (provider: AiProviderId) =>
     ipcRenderer.invoke('ai:clearKey', provider) as Promise<boolean>,
   aiTestConnection: () => ipcRenderer.invoke('ai:testConnection') as Promise<AiTestConnectionResult>,
+  /** Models offered by the saved provider (best effort, for the settings model field). */
+  aiListModels: () => ipcRenderer.invoke('ai:listModels') as Promise<AiListModelsResult>,
   /** Starts a chat turn; streamed output arrives via `onAiEvent` tagged with `request.turnId`. */
   aiSend: (request: AiSendRequest) =>
     ipcRenderer.invoke('ai:send', request) as Promise<{ started: boolean }>,

@@ -14,12 +14,21 @@ import { useAiWorkspace } from './useAiWorkspace';
 import { publishGraphqlSchemaForAi } from './aiGraphqlSchema';
 import { loadSchemaFromSdl } from '../../shared/graphqlSchemaLoader';
 
-function setup() {
+function setup(capturedVars: Array<{ key: string; value: string; enabled: boolean }> = []) {
   const inFolder = createDefaultHttpRequest({ id: 'req_folder', name: 'In folder' });
   const root = createDefaultHttpRequest({ id: 'req_root', name: 'Root' });
   const collection = createEmptyCollection('C', {
     items: [{ kind: 'folder', id: 'fld', name: 'F', items: [inFolder] }, root],
-    environments: [{ id: 'e', name: 'dev', variables: [{ key: 'apiToken', value: 'env-token-1', enabled: true }] }],
+    environments: [
+      {
+        id: 'e',
+        name: 'dev',
+        variables: [
+          { key: 'apiToken', value: 'env-token-1', enabled: true },
+          { key: 'baseUrl', value: 'https://api.good.test/v1', enabled: true },
+        ],
+      },
+    ],
   });
   const sendRequest = vi.fn().mockResolvedValue({ status: 200 } as HttpResponseResult);
   const probe: {
@@ -40,7 +49,7 @@ function setup() {
     const [activeTabId, setActiveTabId] = useState<string | null>('tab_root');
     const [activeCollectionPath, setActiveCollectionPath] = useState<string | null>('/c.awjc');
     probe.ws = useAiWorkspace(
-      { collections, tabs, activeTabId, activeCollectionPath, responsesByTab: { tab_root: { status: 201 } as HttpResponseResult }, capturedVars: [] },
+      { collections, tabs, activeTabId, activeCollectionPath, responsesByTab: { tab_root: { status: 201 } as HttpResponseResult }, capturedVars },
       { setCollections, setTabs, setActiveTabId, setActiveCollectionPath, sendRequest },
     );
     probe.collections = collections;
@@ -54,6 +63,14 @@ function setup() {
 }
 
 describe('useAiWorkspace', () => {
+  it('resolves the host a send would use, with captured values taking precedence', () => {
+    const request = createDefaultHttpRequest({ url: '{{baseUrl}}/users' });
+    expect(setup().probe.ws.resolveRequestOrigin?.(request)).toBe('https://api.good.test');
+    const captured = setup([{ key: 'baseUrl', value: 'https://evil.test', enabled: true }]);
+    expect(captured.probe.ws.resolveRequestOrigin?.(request)).toBe('https://evil.test');
+    expect(setup().probe.ws.resolveRequestOrigin?.(createDefaultHttpRequest({ url: '{{missing}}/x' }))).toBeNull();
+  });
+
   it('exposes state, responses, and secret values for scrubbing', () => {
     const { probe } = setup();
     expect(probe.ws.getTabs()).toHaveLength(1);

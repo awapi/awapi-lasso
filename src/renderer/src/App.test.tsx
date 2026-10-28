@@ -103,6 +103,7 @@ describe('App shell', () => {
       aiSetKey: vi.fn().mockResolvedValue({ ok: true }),
       aiClearKey: vi.fn().mockResolvedValue(true),
       aiTestConnection: vi.fn().mockResolvedValue({ ok: true, message: 'ok' }),
+      aiListModels: vi.fn().mockResolvedValue({ ok: true, models: [] }),
       aiSend: vi.fn().mockResolvedValue({ started: true }),
       aiCancel: vi.fn().mockResolvedValue(true),
       aiToolResult: vi.fn().mockResolvedValue(true),

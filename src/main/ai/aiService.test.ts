@@ -13,6 +13,7 @@ import {
   isToolsUnsupportedError,
   resetToolSupportCache,
   cancelAiTurn,
+  listAiModels,
   resolveAiToolResult,
   runAiTurn,
   testAiConnection,
@@ -430,6 +431,42 @@ describe('testAiConnection', () => {
     const result = await testAiConnection(deps);
     expect(result.ok).toBe(false);
     expect(result.message).not.toContain('sk-1-secretkey');
+  });
+});
+
+describe('listAiModels', () => {
+  it('fails without a key for providers that need one', async () => {
+    const { deps } = createDeps((async function* () {}) as StreamChat);
+    const listModels = vi.fn();
+    const result = await listAiModels({ ...deps, resolveListModels: () => listModels });
+    expect(result).toEqual({ ok: false, message: expect.stringMatching(/API key/) });
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
+  it('lists models with the saved key and base URL', async () => {
+    const { deps, secretDeps } = createDeps((async function* () {}) as StreamChat);
+    setAiKey('openai', 'sk-1', secretDeps);
+    const listModels = vi.fn().mockResolvedValue(['gpt-5']);
+    const result = await listAiModels({ ...deps, resolveListModels: () => listModels });
+    expect(result).toEqual({ ok: true, models: ['gpt-5'] });
+    expect(listModels).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: 'sk-1', baseUrl: 'https://api.openai.com/v1', signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it('reports an empty list and scrubs the key from errors', async () => {
+    const { deps, secretDeps } = createDeps((async function* () {}) as StreamChat);
+    setAiKey('openai', 'sk-1-secretkey', secretDeps);
+    expect(await listAiModels({ ...deps, resolveListModels: () => async () => [] })).toEqual({
+      ok: false,
+      message: expect.stringContaining('did not list any models'),
+    });
+    const failing = async () => {
+      throw new Error('HTTP 401 for key sk-1-secretkey');
+    };
+    const result = await listAiModels({ ...deps, resolveListModels: () => failing });
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('sk-1-secretkey');
   });
 });
 

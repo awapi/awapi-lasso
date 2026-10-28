@@ -4,7 +4,7 @@ import type { SecretStoreDeps } from '../secretStore';
 import { AI_EVENT_CHANNEL, registerAiIpc, type AiIpcMainLike } from './aiIpc';
 import type { AiSettingsFsDeps } from './aiSettingsStore';
 
-function setup(encryptionAvailable = true) {
+function setup(encryptionAvailable = true, fetchImpl?: typeof fetch) {
   const files = new Map<string, string>();
   const dirs = new Set<string>(['/userdata']);
   const secretDeps: SecretStoreDeps = {
@@ -25,7 +25,7 @@ function setup(encryptionAvailable = true) {
   const handlers = new Map<string, (event: unknown, ...args: any[]) => unknown>();
   const ipc: AiIpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) };
   const sendEvent = vi.fn();
-  registerAiIpc(ipc, { fsDeps, secretDeps, sendEvent });
+  registerAiIpc(ipc, { fsDeps, secretDeps, sendEvent, fetchImpl });
   const call = <T>(channel: string, ...args: unknown[]) => handlers.get(channel)!({}, ...args) as T;
   return { call, handlers, sendEvent, files };
 }
@@ -39,6 +39,7 @@ describe('registerAiIpc', () => {
         'ai:clearKey',
         'ai:getKeyStatuses',
         'ai:getSettings',
+        'ai:listModels',
         'ai:saveSettings',
         'ai:send',
         'ai:setKey',
@@ -108,5 +109,26 @@ describe('registerAiIpc', () => {
   it('reports test-connection failure when no key is set', async () => {
     const result = await setup().call<Promise<{ ok: boolean }>>('ai:testConnection');
     expect(result.ok).toBe(false);
+  });
+
+  it('reports list-models failure when no key is set', async () => {
+    const result = await setup().call<Promise<{ ok: boolean; message: string }>>('ai:listModels');
+    expect(result).toEqual({ ok: false, message: expect.stringContaining('API key') });
+  });
+
+  it('sends every provider call through the injected fetch (Electron net.fetch in the app)', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith('/models')
+        ? new Response(JSON.stringify({ data: [{ id: 'gpt-5' }] }), { status: 200 })
+        : new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n', { status: 200 }),
+    );
+    const { call } = setup(true, fetchImpl as unknown as typeof fetch);
+    call('ai:setKey', 'openai', 'sk-1');
+    expect(await call<Promise<unknown>>('ai:listModels')).toEqual({ ok: true, models: ['gpt-5'] });
+    expect(await call<Promise<{ ok: boolean }>>('ai:testConnection')).toMatchObject({ ok: true });
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://api.openai.com/v1/models',
+      'https://api.openai.com/v1/chat/completions',
+    ]);
   });
 });

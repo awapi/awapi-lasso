@@ -280,6 +280,8 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({ open, onClose, getCont
   const { request: requestApproval, declineAll } = approvals;
   const [appliedEdits, setAppliedEdits] = useState<UndoableEdit[]>([]);
   const editCounterRef = useRef(0);
+  /** Hosts approved for assistant sends during this panel's lifetime. */
+  const approvedSendOriginsRef = useRef(new Set<string>());
   const onApplied = useCallback((edit: AiAppliedEdit) => {
     const id = ++editCounterRef.current;
     setAppliedEdits(prev => [...prev, { ...edit, id }].slice(-MAX_UNDOABLE_EDITS));
@@ -295,6 +297,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({ open, onClose, getCont
             workspace,
             requestApproval,
             onApplied,
+            approvedSendOrigins: approvedSendOriginsRef.current,
             getApprovalPolicy: async () => {
               const settings = await window.electronAPI?.aiGetSettings?.();
               return {

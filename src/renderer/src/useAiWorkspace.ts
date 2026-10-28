@@ -6,6 +6,7 @@ import {
   type VariableEntry,
 } from '../../shared/collectionSchema';
 import type { HttpResponseResult } from '../../shared/httpTypes';
+import { resolveRequestOrigin } from '../../shared/aiSanitize';
 import type { AiToolWorkspace } from './aiToolHost';
 import { collectWorkspaceSecretValues } from './aiContextBuilder';
 import { getGraphqlSchemaForAi, loadGraphqlSchemaForAi } from './aiGraphqlSchema';
@@ -28,6 +29,20 @@ export interface AiWorkspaceSetters {
   setActiveCollectionPath: (path: string | null) => void;
   /** Sends the active tab's request (the same code path as the Send button). */
   sendRequest: () => Promise<HttpResponseResult | null>;
+}
+
+/** The variables a send uses, built the same way as `interpolationContext` in App.tsx. */
+function sendInterpolationContext(state: AiWorkspaceState) {
+  const entry = state.collections.find(c => c.filePath === state.activeCollectionPath) ?? state.collections[0];
+  const collection = entry?.collection;
+  const environments = collection?.environments ?? [];
+  const environment =
+    environments.find(e => e.name === collection?.activeEnvironment) ?? environments[0];
+  return {
+    collectionVariables: collection?.variables ?? [],
+    environmentVariables: environment?.variables ?? [],
+    capturedVariables: state.capturedVars,
+  };
 }
 
 function findRequest(items: CollectionTreeItem[], id: string): RequestItem | undefined {
@@ -218,6 +233,8 @@ export function useAiWorkspace(state: AiWorkspaceState, setters: AiWorkspaceSett
         }
         return false;
       },
+
+      resolveRequestOrigin: request => resolveRequestOrigin(request, sendInterpolationContext(stateRef.current)),
 
       sendActiveRequest: async () => {
         await waitForCommit();

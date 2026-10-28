@@ -20,6 +20,27 @@ export type ProviderStreamEvent = AiStreamEvent | { type: 'provider-content'; co
 
 export type StreamChat = (request: ProviderRequest) => AsyncGenerator<ProviderStreamEvent, void, undefined>;
 
+export interface ListModelsRequest {
+  apiKey: string | null;
+  baseUrl: string;
+  signal?: AbortSignal;
+  /** Injectable for tests; defaults to the global `fetch`. */
+  fetchImpl?: typeof fetch;
+}
+
+/** Returns the model ids the provider offers, best effort. */
+export type ListModels = (request: ListModelsRequest) => Promise<string[]>;
+
+/** Reads `data[].id` from a `/models` response (OpenAI and Anthropic share this shape). */
+export function parseModelIds(json: unknown): string[] {
+  const data = (json as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return [];
+  const ids = data
+    .map(entry => (entry as { id?: unknown } | null)?.id)
+    .filter((id): id is string => typeof id === 'string' && id.trim() !== '');
+  return [...new Set(ids)];
+}
+
 export class AiProviderError extends Error {
   constructor(
     message: string,

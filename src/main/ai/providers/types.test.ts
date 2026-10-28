@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { AiProviderError, describeHttpError, joinUrl, parseToolArguments, responseBodyChunks } from './types';
+import {
+  AiProviderError,
+  describeHttpError,
+  joinUrl,
+  parseModelIds,
+  parseToolArguments,
+  responseBodyChunks,
+} from './types';
 
 describe('provider helpers', () => {
+  it('reads unique model ids from a /models response and ignores junk', () => {
+    expect(parseModelIds({ data: [{ id: 'a' }, { id: 'b' }, { id: 'a' }, { id: '' }, { id: 3 }, null, {}] })).toEqual([
+      'a',
+      'b',
+    ]);
+    expect(parseModelIds(null)).toEqual([]);
+    expect(parseModelIds({ data: 'nope' })).toEqual([]);
+  });
+
   it('joins URLs without duplicate slashes', () => {
     expect(joinUrl('https://a.test/v1/', '/chat/completions')).toBe('https://a.test/v1/chat/completions');
     expect(joinUrl('https://a.test/v1', 'messages')).toBe('https://a.test/v1/messages');

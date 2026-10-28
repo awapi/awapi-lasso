@@ -12,8 +12,12 @@ import {
   applyRequestChanges,
   applyVariableChanges,
   buildRequestFromSpec,
+  changedHostCaptures,
   changedUrlVariables,
   changesUrlOrigin,
+  collectionUrlOrigins,
+  urlOrigin,
+  hostVariableNames,
   describeRequestChanges,
   describeVariableChanges,
   type AiFieldChange,
@@ -61,6 +65,11 @@ export interface AiToolWorkspace {
   openRequest: (requestId: string) => boolean;
   /** Sends the active tab's request exactly as the Send button would. */
   sendActiveRequest: () => Promise<HttpResponseResult | null>;
+  /**
+   * `scheme://host[:port]` the request would be sent to, resolved with the variables a send would use
+   * (null when it can't be resolved). Used to confirm hosts before the assistant sends.
+   */
+  resolveRequestOrigin?: (request: RequestItem) => string | null;
 }
 
 export interface AiApprovalRequest {
@@ -86,6 +95,11 @@ export interface AiToolHost {
   requestApproval: (request: AiApprovalRequest) => Promise<boolean>;
   /** Called after a write is applied, with a way to revert it. */
   onApplied?: (edit: AiAppliedEdit) => void;
+  /**
+   * Hosts the user has approved the assistant sending to in this chat. The first send to any other host
+   * always asks, even when sends don't need confirmation. Without it, every send asks.
+   */
+  approvedSendOrigins?: Set<string>;
   getApprovalPolicy: () => Promise<{
     autoApplyEdits: boolean;
     confirmBeforeRun: boolean;
@@ -161,8 +175,25 @@ async function approve(host: AiToolHost, request: AiApprovalRequest): Promise<bo
 const NO_SCHEMA =
   'No GraphQL schema is loaded. Open the GraphQL request (open_request) and call load_graphql_schema, or ask the user to load a schema file in the GraphQL tab.';
 
+const NEW_HOST_WARNING =
+  'This request uses a host no other request in the collection uses. It inherits the collection auth and can use your variables, so check it is a server you trust; this always asks, even when edits are applied automatically.';
+
 const HOST_CHANGE_WARNING =
   'This points the request at a different host. Check it is a server you trust before applying; this always asks, even when edits are applied automatically.';
+
+function captureWarning(variables: string[]): string {
+  return `Captures response values into ${variables.join(', ')}, which decide${variables.length > 1 ? '' : 's'} where requests are sent. A response could then redirect later requests to another host. This always asks, even when edits are applied automatically.`;
+}
+
+/** Joins the warnings that apply to one approval; undefined when there are none. */
+function warningFor(...warnings: Array<string | false | undefined>): { warning?: string } {
+  const present = warnings.filter((w): w is string => Boolean(w));
+  return present.length ? { warning: present.join(' ') } : {};
+}
+
+function collectionForPath(host: AiToolHost, filePath: string | null): AwjcCollection | undefined {
+  return host.workspace.getCollections().find(c => c.filePath === filePath)?.collection;
+}
 
 const DECLINED = 'The user declined this action. Do not retry it unchanged; ask what they would like instead.';
 
@@ -296,13 +327,22 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
       const applied = applyRequestChanges(found.request, args.changes);
       if (!applied.ok) return fail(applied.error);
       const title = `Edit request "${found.request.name}"`;
+      const owner = collectionForPath(host, found.collectionPath);
+      const riskyCaptures = changedHostCaptures(
+        found.request.captures,
+        applied.value.captures,
+        owner ? hostVariableNames(owner) : new Set(),
+      );
       const approved = await approve(host, {
         tool: call.name,
         risk: 'write',
         title,
         lines: applied.summary,
         changes: describeRequestChanges(found.request, applied.value, secrets),
-        ...(changesUrlOrigin(found.request.url, applied.value.url) ? { warning: HOST_CHANGE_WARNING } : {}),
+        ...warningFor(
+          changesUrlOrigin(found.request.url, applied.value.url) && HOST_CHANGE_WARNING,
+          riskyCaptures.length > 0 && captureWarning(riskyCaptures),
+        ),
       });
       if (!approved) return fail(DECLINED);
       ws.updateRequest(found.request.id, applied.value);
@@ -323,7 +363,17 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
       if (!built.ok) return fail(built.error);
       const folderName = folderId ? (findInTree(entry.collection.items, folderId) as FolderItem).name : null;
       const title = `Add request to "${entry.collection.metadata.name}"${folderName ? ` / ${folderName}` : ''}`;
-      const approved = await approve(host, { tool: call.name, risk: 'write', title, lines: built.summary });
+      const riskyCaptures = changedHostCaptures(undefined, built.value.captures, hostVariableNames(entry.collection));
+      const approved = await approve(host, {
+        tool: call.name,
+        risk: 'write',
+        title,
+        lines: built.summary,
+        ...warningFor(
+          !collectionUrlOrigins(entry.collection).has(urlOrigin(built.value.url)) && NEW_HOST_WARNING,
+          riskyCaptures.length > 0 && captureWarning(riskyCaptures),
+        ),
+      });
       if (!approved) return fail(DECLINED);
       ws.addRequest(entry.filePath, folderId, built.value);
       const { removeRequest } = ws;
@@ -350,7 +400,7 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
       const applied = applyVariableChanges(isCollectionScope ? collection.variables : env?.variables, args.variables);
       if (!applied.ok) return fail(applied.error);
       const previousVariables = isCollectionScope ? collection.variables : env?.variables;
-      const urlVariables = changedUrlVariables(previousVariables, applied.value);
+      const urlVariables = changedUrlVariables(previousVariables, applied.value, hostVariableNames(collection));
       const title = isCollectionScope ? 'Edit collection variables' : `Edit environment "${target}"`;
       const approved = await approve(host, {
         tool: call.name,
@@ -383,13 +433,23 @@ async function runTool(call: AiToolCall, host: AiToolHost): Promise<AiToolResult
       const tabId = ws.getActiveTabId();
       const tab = ws.getTabs().find(t => t.id === tabId);
       if (!tab) return fail('There is no active request tab. Use open_request first.');
+      const origin = ws.resolveRequestOrigin?.(tab.request) ?? null;
+      const approvedOrigins = host.approvedSendOrigins;
+      const firstToHost = !origin || !approvedOrigins?.has(origin);
       const approved = await approve(host, {
         tool: call.name,
         risk: 'run',
-        title: `Send ${tab.request.method} ${redactUrl(tab.request.url, secrets)}`,
+        title: `Send ${tab.request.method} ${redactUrl(tab.request.url, secrets)}${origin ? ` → ${origin}` : ''}`,
         lines: ['This sends a real network request and may change data on the server.'],
+        ...warningFor(
+          firstToHost &&
+            (origin
+              ? `First request from the assistant to ${origin} in this chat. Check it is a server you trust; your auth and variables are sent with it.`
+              : "The request's host could not be worked out from its URL and variables. Check where it goes before sending."),
+        ),
       });
       if (!approved) return fail(DECLINED);
+      if (origin) approvedOrigins?.add(origin);
       const response = await ws.sendActiveRequest();
       return response ? ok(sanitizeResponseForAi(response, secrets)) : fail('The request could not be sent.');
     }

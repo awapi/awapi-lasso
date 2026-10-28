@@ -39,6 +39,7 @@ import type {
 } from '../shared/terminal';
 import type {
   AiKeyStatus,
+  AiListModelsResult,
   AiProviderId,
   AiSendRequest,
   AiSettings,
@@ -189,6 +190,8 @@ declare global {
       aiSetKey: (provider: AiProviderId, apiKey: string) => Promise<AiSetKeyResult>;
       aiClearKey: (provider: AiProviderId) => Promise<boolean>;
       aiTestConnection: () => Promise<AiTestConnectionResult>;
+      /** Models offered by the saved provider (best effort, for the settings model field). */
+      aiListModels: () => Promise<AiListModelsResult>;
       /** Starts a chat turn; streamed output arrives via `onAiEvent` tagged with `request.turnId`. */
       aiSend: (request: AiSendRequest) => Promise<{ started: boolean }>;
       aiCancel: (turnId: string) => Promise<boolean>;

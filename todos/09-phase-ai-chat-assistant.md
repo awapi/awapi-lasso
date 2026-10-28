@@ -27,7 +27,7 @@ It is **built into the app** using LLM tool calling that runs against the app's 
 | Settings | Provider, model per provider, base URL, temperature, max tokens, ask-before-send, apply-edits-without-asking, share-environment-values | `aiSettingsStore.ts`, `AiSettingsModal.tsx` |
 | Providers | OpenAI, Anthropic, OpenAI-compatible; SSE streaming; abort; friendly HTTP errors; tool calling (`tools` / `tool_use`) | `src/main/ai/providers/`, `sseParser.ts` |
 | Agent loop | Multi-round tool loop (max 8), cancellation, tool timeout, result scrubbing, unknown-tool / bad-args handling | `src/main/ai/aiService.ts` |
-| IPC | `ai:getSettings/saveSettings/getKeyStatuses/setKey/clearKey/testConnection/send/cancel/toolResult` + `ai:event` stream | `aiIpc.ts`, `src/preload/` |
+| IPC | `ai:getSettings/saveSettings/getKeyStatuses/setKey/clearKey/testConnection/listModels/send/cancel/toolResult` + `ai:event` stream | `aiIpc.ts`, `src/preload/` |
 | Chat UI | Docked, resizable, persisted width; streaming; code blocks + Copy; quick actions; onboarding + privacy notice; Stop/Clear; toolbar button + Cmd/Ctrl+Shift+A; tool-activity chips; Apply/Decline cards | `AiChatPanel.tsx`, `useAiChat.ts`, `useAiApprovals.ts` |
 | Read tools | workspace overview, request, response (paged), environments, collection tree, open request, GraphQL schema (overview/type/search), GraphQL validate | `src/shared/aiTools.ts`, `aiToolHost.ts`, `aiGraphql.ts` |
 | Write tools | update request, create request, set environment variables, send request (all approval-gated) | `aiToolHost.ts`, `aiSanitize.ts` |
@@ -60,14 +60,17 @@ It is **built into the app** using LLM tool calling that runs against the app's 
 - [x] **Stronger free-text detection**: well-known key formats (`sk-…`, `ghp_…`, `github_pat_…`, `glpat-…`, `AKIA…`, Slack, Google, Stripe), PEM private keys, Basic credentials, and high-entropy tokens are scrubbed; writes containing a literal known-format key / private key / JWT are rejected (`aiContext.ts`, `aiSanitize.ts`).
 - [ ] **Literal secrets in request bodies cannot be edited by the AI** (edits containing `[REDACTED]` are rejected). Decide whether to support targeted body patches (JSON path edits) so hidden fields survive.
 - [ ] Optional **tool-call audit log** (what the assistant read/changed per session).
-- [ ] Security review pass (`/security-review`) over `src/main/ai/` and the renderer tool host.
+- [x] Security review pass (`/security-review`) over `src/main/ai/` and the renderer tool host. Fixed three ways around "host changes always ask": `create_request` to a new host (now warns), URL-variable changes judged by value shape only (now `hostVariableNames` + enabled toggles + `https:host` forms), and captures into `baseUrl` (now warn). Added a send-time check: `send_request` shows the resolved host and asks the first time per host in a chat (`resolveRequestOrigin`, `approvedSendOrigins`).
+- [ ] Follow-up from the review: the app stores every capture in the highest-precedence captured layer regardless of its `scope` (`App.tsx` `handleSendRequest`); worth fixing outside the AI work.
+- [ ] Decide whether the user's own sends should also be checked after an assistant edit. The send-time host check only runs for `send_request`; if the user approves (or auto-applies) a host-variable edit, their next manual Send goes to the new host without another prompt. Option: mark requests/variables touched by the assistant and show the resolved host once on the next manual send.
+- [ ] Refresh the threat-model docs: `docs/ai-assistant.md` "Prompt injection" paragraph (still says only "host changes still ask") should mention the first-send-per-host prompt and the capture/variable checks.
 
 ### 🧩 Functionality
 - [x] **Tool-triggered GraphQL schema load**: `load_graphql_schema` (risk `run`, asks first) runs the GraphQL tab's discovery (introspection, then local file) via a loader published in `aiGraphqlSchema.ts`.
 - [ ] Optional: send trimmed SDL in the initial context.
 - [ ] More tools: delete / move / rename requests and folders, create folders and collections, folder- and collection-level settings (headers, variables), request history, other tabs' responses, runner results, captured variables. (Auth stays excluded by design.)
 - [ ] Feed `docs/ai-authoring-guide.md` into the prompt for whole-collection authoring.
-- [ ] `ai:listModels` (best effort) to populate the model field.
+- [x] `ai:listModels` (best effort): **Load models** in AI settings lists `GET {baseUrl}/models` (OpenAI filtered to chat models, Anthropic in API order) as `<datalist>` suggestions; the field stays free text (`listAiModels` in `aiService.ts`, `getListModels` in `providers/`).
 - [x] Conversation memory across turns includes tool results: Main emits a `tool-transcript` at the end of a turn (scrubbed results, no provider internals); the renderer sends it back and Main validates, re-scrubs and expands the last 3 turns with results capped at 4,000 chars.
 - [x] Fallback to chat-only when a model/server does not support tool calling (round-0 "tools not supported" errors retry without tools, notify the user, and are remembered per provider/base URL/model).
 
@@ -81,7 +84,7 @@ It is **built into the app** using LLM tool calling that runs against the app's 
 - [ ] Token usage and cost display; surface reasoning/"thinking" content for reasoning models.
 
 ### ⚙️ Platform & providers
-- [ ] **Proxy / custom CA support** for AI calls (they use plain Node `fetch`, not the HTTP engine's settings).
+- [x] **Proxy / custom CA support** for AI calls: Main passes Electron `net.fetch` as `fetchImpl`, so provider calls use the OS proxy settings (incl. PAC) and the OS certificate store. TLS verification stays on. (The HTTP engine itself has no proxy support yet.)
 - [ ] Azure OpenAI URL / `api-version` handling; Gemini via native API (OpenAI-compatible endpoint works today).
 - [x] Idle timeout for hung servers during a turn: a provider stream silent for 3 minutes is aborted with a clear error (`withIdleTimeout` in `aiService.ts`).
 - [x] Deliver `ai:event` to the originating window (the `ai:send` sender; main window as fallback).
@@ -90,6 +93,11 @@ It is **built into the app** using LLM tool calling that runs against the app's 
 - [ ] Optional: Anthropic server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`) for Opus 5.5 / Sonnet 5.5; needs handling of `fallback` blocks and partial text in the chat UI.
 
 ### 🧪 Testing
+- [ ] **Manual check in the running app** of the work from 2026-10-27 (only unit-tested so far):
+  - **Load models** with OpenAI, Anthropic and LM Studio/Ollama (list appears; errors are readable).
+  - **`net.fetch` streaming**: Test connection, then a chat turn whose answer streams in progressively; Stop cancels mid-stream; a tool loop still works. If streaming arrives in one chunk or abort fails, fall back to Node `fetch` and track proxy support separately.
+  - **Behind a proxy / TLS-inspecting network**, if one is available: AI calls succeed with the OS proxy settings and the company root CA.
+  - **Host checks**: ask the assistant to send a request — the approval shows `→ https://resolved.host` and a first-send warning (even with send confirmation off); with auto-apply on, `create_request` to a new host, disabling `baseUrl`, and a capture into `baseUrl` all ask.
 - [ ] Live smoke tests against real **OpenAI** and **Anthropic** (the live test currently targets OpenAI-compatible servers; add `AI_LIVE_PROVIDER` + key env vars).
 - [ ] Electron end-to-end test of the panel (key save → chat → approval → edit).
 - [ ] Manual QA checklist for release (keychain prompt on macOS, Linux without Secret Service, light theme).
@@ -98,9 +106,25 @@ It is **built into the app** using LLM tool calling that runs against the app's 
 
 ## Risks & open questions
 - **Free-text leakage**: redaction of bodies/responses is best effort; a credential echoed in an unusual format can reach the provider. Mitigation: local models, warnings in docs, the hardening items above.
-- **Prompt injection** from API responses: mitigated by approvals and the "untrusted data" instruction, weaker when auto-apply is enabled.
+- **Prompt injection** from API responses: mitigated by approvals, the "untrusted data" instruction, and host checks that ask even with auto-apply on (host/scheme edits, new requests to unknown hosts, host-variable and capture changes, and the first assistant send per resolved host in a chat). Remaining gaps: with auto-apply on, other edits (bodies, headers, paths) apply silently, and the user's own manual sends are not re-checked after an assistant edit.
+- **Host decisions on unresolvable URLs**: when a request's host can't be resolved in the renderer (e.g. a host built from a `secret` variable only Main hydrates), `send_request` always asks. That is safe but may prompt more than expected.
 - **Context size**: large schemas and responses are capped/paged; very large schemas may still need smarter trimming.
 - **Model quality**: tool calling reliability varies by model; small local models may mis-call tools.
+
+---
+
+## Handoff — suggested order for the next session
+State on 2026-10-27: branch `feature/ai-chat`; `ai:listModels`, `net.fetch` for AI calls, and the security-review fixes are done and pushed, verified with typecheck / tests / build only (**not yet checked in the running app**).
+
+1. Manual check in the running app (Testing → first item); fix anything it finds.
+2. Live smoke tests against real OpenAI and Anthropic; settle the OpenAI default model at the same time.
+3. Fix capture `scope` handling in `App.tsx` (security follow-up).
+4. "Explain this error" button on the response inspector.
+5. "Apply to request" on GraphQL/JSON code blocks (must go through approvals and the host checks).
+6. "What will be sent" preview.
+7. More tools (each needs `isEntryHiddenFromAi`, host checks where they can redirect, and secret-leak tests).
+
+Then the optional items: persisted chat history, token usage, Azure/Gemini, body patches for hidden fields, trimmed SDL, authoring guide in the prompt, Anthropic refusal fallback, E2E test, audit log, MCP server (T9.9).
 
 ---
 

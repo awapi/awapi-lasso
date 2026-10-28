@@ -201,3 +201,6 @@ export interface AiTestConnectionResult {
   ok: boolean;
   message: string;
 }
+
+/** Models offered by the configured provider (best effort; the model field stays free text). */
+export type AiListModelsResult = { ok: true; models: string[] } | { ok: false; message: string };

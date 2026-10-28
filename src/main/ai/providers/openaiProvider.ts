@@ -4,8 +4,10 @@ import {
   AiProviderError,
   describeHttpError,
   joinUrl,
+  parseModelIds,
   parseToolArguments,
   responseBodyChunks,
+  type ListModelsRequest,
   type ProviderRequest,
 } from './types';
 
@@ -120,3 +122,29 @@ export function createOpenAiStreamChat(official: boolean, providerLabel: string)
 
 export const streamOpenAiChat = createOpenAiStreamChat(true, 'OpenAI');
 export const streamOpenAiCompatibleChat = createOpenAiStreamChat(false, 'The AI server');
+
+/** OpenAI's `/models` also lists embedding, audio, image and moderation models that can't chat. */
+const NON_CHAT_OPENAI_MODEL =
+  /(embedding|whisper|tts|dall-e|gpt-image|moderation|davinci|babbage|transcribe|realtime|audio|search|computer-use)/i;
+
+/** Lists models from `GET {baseUrl}/models`; for official OpenAI, non-chat models are filtered out. */
+export function createOpenAiListModels(official: boolean, providerLabel: string) {
+  return async function listModels(request: ListModelsRequest): Promise<string[]> {
+    const doFetch = request.fetchImpl ?? fetch;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (request.apiKey) headers.Authorization = `Bearer ${request.apiKey}`;
+    const response = await doFetch(joinUrl(request.baseUrl, '/models'), {
+      method: 'GET',
+      headers,
+      signal: request.signal,
+    });
+    if (!response.ok) {
+      throw describeHttpError(response.status, await response.text().catch(() => ''), providerLabel);
+    }
+    const ids = parseModelIds(await response.json().catch(() => null));
+    return (official ? ids.filter(id => !NON_CHAT_OPENAI_MODEL.test(id)) : ids).sort((a, b) => a.localeCompare(b));
+  };
+}
+
+export const listOpenAiModels = createOpenAiListModels(true, 'OpenAI');
+export const listOpenAiCompatibleModels = createOpenAiListModels(false, 'The AI server');

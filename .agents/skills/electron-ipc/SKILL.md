@@ -51,7 +51,7 @@ Add the exact method signature and JSDoc comment to `Window['electronAPI']` in `
 3. Run `pnpm run typecheck` and `pnpm run test` to validate end-to-end type safety and test coverage.
 
 ## Reference: `ai:*` channels (AI assistant)
-- Request/response: `ai:getSettings`, `ai:saveSettings`, `ai:getKeyStatuses` (booleans only), `ai:setKey` / `ai:clearKey` (write-only; plaintext keys never cross IPC to the renderer), `ai:testConnection`, `ai:send` (starts a turn and returns immediately), `ai:cancel`, `ai:toolResult`.
+- Request/response: `ai:getSettings`, `ai:saveSettings`, `ai:getKeyStatuses` (booleans only), `ai:setKey` / `ai:clearKey` (write-only; plaintext keys never cross IPC to the renderer), `ai:testConnection`, `ai:listModels` (model ids of the saved provider, best effort), `ai:send` (starts a turn and returns immediately), `ai:cancel`, `ai:toolResult`.
 - Main → Renderer event: `ai:event` carries streamed `AiTurnEvent`s to the window that sent `ai:send` (`sendEvent(event, origin)` uses the invoke event's `sender`, falling back to the main window). A `tool-call` event asks the renderer to run a workspace tool (`src/renderer/src/aiToolHost.ts`) and reply via `ai:toolResult` with the same turn-scoped call id.
 - Main-only data never crosses IPC: the `provider-content` stream event (raw provider blocks such as Claude thinking) is consumed by the agent loop, and Main-only secrets for scrubbing come from the injected `getMainSecretValues` dependency.
 - Handlers live in `src/main/ai/aiIpc.ts`; the agent loop in `src/main/ai/aiService.ts`. Tool results are sanitized in the renderer (`src/shared/aiSanitize.ts`) and scrubbed again in Main. Never add a tool or channel that exposes auth configs, secret values, or API keys.

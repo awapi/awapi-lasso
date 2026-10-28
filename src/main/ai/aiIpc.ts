@@ -2,6 +2,7 @@ import {
   AI_PROVIDER_IDS,
   isAiProviderId,
   type AiKeyStatus,
+  type AiListModelsResult,
   type AiSendRequest,
   type AiSettings,
   type AiTestConnectionResult,
@@ -16,7 +17,7 @@ import {
   setAiKey,
   type AiSettingsFsDeps,
 } from './aiSettingsStore';
-import { cancelAiTurn, resolveAiToolResult, runAiTurn, testAiConnection } from './aiService';
+import { cancelAiTurn, listAiModels, resolveAiToolResult, runAiTurn, testAiConnection } from './aiService';
 
 export const AI_EVENT_CHANNEL = 'ai:event';
 
@@ -36,6 +37,11 @@ export interface AiIpcDeps {
   sendEvent: (event: AiTurnEvent, origin: unknown) => void;
   /** Secrets known only to Main (keychain values, cached OAuth 2.0 tokens), scrubbed from AI traffic. */
   getMainSecretValues?: () => string[];
+  /**
+   * Fetch used for every provider call. Main passes Electron's `net.fetch`, so AI traffic follows the OS proxy
+   * settings (incl. PAC) and trusts the OS certificate store (corporate root CAs). Defaults to Node's `fetch`.
+   */
+  fetchImpl?: typeof fetch;
 }
 
 export type AiSetKeyResult = { ok: true } | { ok: false; error: string };
@@ -78,7 +84,13 @@ export function registerAiIpc(ipcMain: AiIpcMainLike, deps: AiIpcDeps): void {
   ipcMain.handle(
     'ai:testConnection',
     (): Promise<AiTestConnectionResult> =>
-      testAiConnection({ fsDeps: deps.fsDeps, secretDeps: deps.secretDeps }),
+      testAiConnection({ fsDeps: deps.fsDeps, secretDeps: deps.secretDeps, fetchImpl: deps.fetchImpl }),
+  );
+
+  ipcMain.handle(
+    'ai:listModels',
+    (): Promise<AiListModelsResult> =>
+      listAiModels({ fsDeps: deps.fsDeps, secretDeps: deps.secretDeps, fetchImpl: deps.fetchImpl }),
   );
 
   ipcMain.handle('ai:send', (origin, request: AiSendRequest): { started: boolean } => {
@@ -90,6 +102,7 @@ export function registerAiIpc(ipcMain: AiIpcMainLike, deps: AiIpcDeps): void {
       secretDeps: deps.secretDeps,
       emit: turnEvent => deps.sendEvent(turnEvent, origin),
       getMainSecretValues: deps.getMainSecretValues,
+      fetchImpl: deps.fetchImpl,
     });
     return { started: true };
   });

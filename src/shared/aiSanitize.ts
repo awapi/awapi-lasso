@@ -2,6 +2,7 @@ import {
   createDefaultGraphQLRequest,
   createDefaultHttpRequest,
   type AssertionRule,
+  type AwjcCollection,
   type CaptureRule,
   type CollectionTreeItem,
   type KeyValueEntry,
@@ -9,6 +10,8 @@ import {
   type VariableEntry,
 } from './collectionSchema';
 import type { HttpResponseResult } from './httpTypes';
+import type { VariableInterpolationContext } from './interpolation';
+import { buildResolvedRequestUrl } from './urlParams';
 import {
   REDACTED,
   findLiteralSecret,
@@ -527,10 +530,15 @@ export function buildRequestFromSpec(protocol: unknown, spec: unknown): AiResult
   return { ok: true, value: applied.value, summary: [`Create ${applied.value.protocol} request "${applied.value.name}"`, ...applied.summary] };
 }
 
+/** `scheme://host[:port]` of a URL as written; a leading `{{variable}}` (or `{{scheme}}://`) counts too. */
+function originText(url: string): string {
+  const match = url.trim().match(/^((?:[a-z][a-z0-9+.-]*|\{\{[^{}]*\}\}):\/\/)?([^/?#]*)/i);
+  return `${match?.[1] ?? ''}${match?.[2] ?? ''}`;
+}
+
 /** Lowercased `scheme://host[:port]` of a URL; a leading `{{variable}}` counts as the host. */
 export function urlOrigin(url: string): string {
-  const match = url.trim().match(/^([a-z][a-z0-9+.-]*:\/\/)?([^/?#]*)/i);
-  return `${match?.[1] ?? ''}${match?.[2] ?? ''}`.toLowerCase();
+  return originText(url).toLowerCase();
 }
 
 /** True when an edit points the request at a different scheme or host. */
@@ -538,18 +546,122 @@ export function changesUrlOrigin(before: string, after: string): boolean {
   return urlOrigin(before) !== urlOrigin(after);
 }
 
-const URL_LIKE_VALUE = /^\s*[a-z][a-z0-9+.-]*:\/\//i;
+/**
+ * Values that start like a URL, including forms without `//` (`https:evil.test`) that WHATWG URL parsing
+ * still sends to `evil.test`, and `host:port`.
+ */
+const URL_LIKE_VALUE = /^\s*[a-z][a-z0-9+.-]*:/i;
+const VARIABLE_TOKEN = /\{\{\s*([^{}\s]+)\s*\}\}/g;
 
-/** Keys of variables whose value changes from or to a URL (e.g. `baseUrl`), which can redirect requests. */
-export function changedUrlVariables(before: VariableEntry[] | undefined, after: VariableEntry[]): string[] {
-  const previous = new Map((before ?? []).map(v => [v.key, v.value ?? '']));
+function variableNamesIn(text: string): string[] {
+  return [...text.matchAll(VARIABLE_TOKEN)].map(m => m[1]);
+}
+
+function walkTree(
+  items: CollectionTreeItem[],
+  onRequest: (request: RequestItem) => void,
+  onVariables: (variables: VariableEntry[]) => void,
+): void {
+  for (const item of items) {
+    if (item.kind === 'request') {
+      onRequest(item);
+    } else {
+      onVariables(item.variables ?? []);
+      walkTree(item.items, onRequest, onVariables);
+    }
+  }
+}
+
+/** Every `scheme://host` written in the collection's request URLs (lowercased, `{{variables}}` kept). */
+export function collectionUrlOrigins(collection: AwjcCollection): Set<string> {
+  const origins = new Set<string>();
+  walkTree(collection.items, r => origins.add(urlOrigin(r.url)), () => {});
+  return origins;
+}
+
+/**
+ * Names of variables that decide which host requests go to: variables in the scheme/host of any request URL,
+ * variables holding a URL-like value in any scope, and (transitively) variables referenced by those values.
+ * Changing one of these, or switching it on or off, can redirect requests.
+ */
+export function hostVariableNames(collection: AwjcCollection): Set<string> {
+  const variables: VariableEntry[] = [
+    ...(collection.variables ?? []),
+    ...(collection.environments ?? []).flatMap(e => e.variables ?? []),
+  ];
+  const names = new Set<string>();
+  walkTree(
+    collection.items,
+    r => variableNamesIn(originText(r.url)).forEach(n => names.add(n)),
+    folderVariables => variables.push(...folderVariables),
+  );
+  for (const v of variables) if (URL_LIKE_VALUE.test(v.value ?? '')) names.add(v.key);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const v of variables) {
+      if (!names.has(v.key)) continue;
+      for (const n of variableNamesIn(v.value ?? '')) {
+        if (!names.has(n)) {
+          names.add(n);
+          grew = true;
+        }
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * Keys of variables whose value or enabled state changes when they can redirect requests: a host variable
+ * (see `hostVariableNames`), or a value that is or becomes URL-like.
+ */
+export function changedUrlVariables(
+  before: VariableEntry[] | undefined,
+  after: VariableEntry[],
+  hostVariables: ReadonlySet<string> = new Set(),
+): string[] {
+  const previous = new Map((before ?? []).map(v => [v.key, v]));
   return after
     .filter(v => {
-      const old = previous.get(v.key) ?? '';
+      const prior = previous.get(v.key);
+      const old = prior?.value ?? '';
       const next = v.value ?? '';
-      return old !== next && (URL_LIKE_VALUE.test(old) || URL_LIKE_VALUE.test(next));
+      const changed = old !== next || (prior?.enabled !== false) !== (v.enabled !== false);
+      return changed && (hostVariables.has(v.key) || URL_LIKE_VALUE.test(old) || URL_LIKE_VALUE.test(next));
     })
     .map(v => v.key);
+}
+
+/** Variables that newly gain or change a capture rule which writes into a host variable or one holding a URL. */
+export function changedHostCaptures(
+  before: CaptureRule[] | undefined,
+  after: CaptureRule[] | undefined,
+  hostVariables: ReadonlySet<string>,
+): string[] {
+  const previous = new Set((before ?? []).map(c => JSON.stringify(c)));
+  const risky = (after ?? []).filter(
+    c => c.enabled !== false && hostVariables.has(c.variable) && !previous.has(JSON.stringify(c)),
+  );
+  return [...new Set(risky.map(c => c.variable))];
+}
+
+/**
+ * The `scheme://host[:port]` a request will actually be sent to, resolved with the same variables the
+ * HTTP engine uses. Null when it cannot be resolved to an absolute URL. Userinfo is never included.
+ */
+export function resolveRequestOrigin(request: RequestItem, context: VariableInterpolationContext): string | null {
+  try {
+    const resolved = buildResolvedRequestUrl({
+      rawUrl: request.url,
+      queryParams: request.queryParams,
+      pathParams: request.pathParams,
+      context,
+    });
+    const parsed = new URL(resolved);
+    return parsed.host ? `${parsed.protocol}//${parsed.host}`.toLowerCase() : null;
+  } catch {
+    return null;
+  }
 }
 
 const VARIABLE_KEY = /^[^\s{}]+$/;

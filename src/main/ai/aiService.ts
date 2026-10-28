@@ -2,6 +2,7 @@ import {
   AI_PROVIDERS,
   isAiProviderId,
   type AiChatMessage,
+  type AiListModelsResult,
   type AiLlmMessage,
   type AiSendRequest,
   type AiSettings,
@@ -16,7 +17,14 @@ import { AI_TOOLS, AI_TOOL_NAMES } from '../../shared/aiTools';
 import { buildSystemPrompt, redactText, truncateText } from '../../shared/aiContext';
 import type { SecretStoreDeps } from '../secretStore';
 import { loadAiSettings, readAiKey, type AiSettingsFsDeps } from './aiSettingsStore';
-import { AiProviderError, getStreamChat, type ProviderRequest, type StreamChat } from './providers';
+import {
+  AiProviderError,
+  getListModels,
+  getStreamChat,
+  type ListModels,
+  type ProviderRequest,
+  type StreamChat,
+} from './providers';
 
 export const MAX_HISTORY_MESSAGES = 30;
 export const MAX_MESSAGE_CHARS = 60000;
@@ -38,6 +46,7 @@ export interface AiServiceDeps {
   fetchImpl?: typeof fetch;
   /** Injectable for tests. */
   resolveStreamChat?: (provider: AiSettings['provider']) => StreamChat;
+  resolveListModels?: (provider: AiSettings['provider']) => ListModels;
   toolTimeoutMs?: number;
   providerIdleTimeoutMs?: number;
   /** Secrets only Main knows (keychain values, cached OAuth 2.0 tokens), scrubbed from everything sent. */
@@ -486,6 +495,39 @@ export async function testAiConnection(deps: Omit<AiServiceDeps, 'emit'>): Promi
   } catch (error) {
     const message = controller.signal.aborted
       ? 'Connection timed out.'
+      : errorMessage(error, apiKey ? [apiKey] : []);
+    return { ok: false, message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export const LIST_MODELS_TIMEOUT_MS = 15000;
+
+/** Lists the models of the saved provider. Best effort: the settings model field stays free text. */
+export async function listAiModels(deps: Omit<AiServiceDeps, 'emit'>): Promise<AiListModelsResult> {
+  const settings = loadAiSettings(deps.fsDeps);
+  if (!isAiProviderId(settings.provider)) return { ok: false, message: 'Unknown provider.' };
+  const info = AI_PROVIDERS[settings.provider];
+  const apiKey = readAiKey(settings.provider, deps.secretDeps);
+  if (!apiKey && !info.keyOptional) {
+    return { ok: false, message: `No ${info.label} API key is configured.` };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LIST_MODELS_TIMEOUT_MS);
+  try {
+    const resolve = deps.resolveListModels ?? getListModels;
+    const models = await resolve(settings.provider)({
+      apiKey,
+      baseUrl: settings.baseUrls[settings.provider],
+      signal: controller.signal,
+      fetchImpl: deps.fetchImpl,
+    });
+    if (models.length === 0) return { ok: false, message: `${info.label} did not list any models.` };
+    return { ok: true, models };
+  } catch (error) {
+    const message = controller.signal.aborted
+      ? 'Listing models timed out.'
       : errorMessage(error, apiKey ? [apiKey] : []);
     return { ok: false, message };
   } finally {

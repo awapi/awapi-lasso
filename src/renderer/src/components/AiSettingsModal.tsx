@@ -24,6 +24,8 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({ isOpen, onClos
   const [keyDraft, setKeyDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  /** Model ids loaded for one provider; offered as suggestions while the field stays free text. */
+  const [modelOptions, setModelOptions] = useState<{ provider: AiProviderId; models: string[] } | null>(null);
 
   const refresh = useCallback(async () => {
     const api = window.electronAPI;
@@ -37,6 +39,7 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({ isOpen, onClos
     if (!isOpen) return;
     setKeyDraft('');
     setFeedback(null);
+    setModelOptions(null);
     void refresh();
   }, [isOpen, refresh]);
 
@@ -94,6 +97,20 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({ isOpen, onClos
       const result = await window.electronAPI.aiTestConnection();
       setFeedback({ kind: result.ok ? 'ok' : 'error', text: result.message });
     });
+
+  const handleLoadModels = () =>
+    run(async () => {
+      await persistSettings();
+      const result = await window.electronAPI.aiListModels();
+      if (!result.ok) {
+        setFeedback({ kind: 'error', text: result.message });
+        return;
+      }
+      setModelOptions({ provider, models: result.models });
+      setFeedback({ kind: 'ok', text: `Loaded ${result.models.length} model${result.models.length === 1 ? '' : 's'}.` });
+    });
+
+  const suggestedModels = modelOptions?.provider === provider ? modelOptions.models : [];
 
   const handleSave = () =>
     run(async () => {
@@ -197,14 +214,32 @@ export const AiSettingsModal: React.FC<AiSettingsModalProps> = ({ isOpen, onClos
             <label htmlFor="ai-model" style={labelStyle}>
               Model
             </label>
-            <input
-              id="ai-model"
-              data-testid="ai-model-input"
-              value={settings.models[provider]}
-              onChange={e => update({ models: { ...settings.models, [provider]: e.target.value } })}
-              style={inputStyle}
-              spellCheck={false}
-            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                id="ai-model"
+                data-testid="ai-model-input"
+                list="ai-model-options"
+                value={settings.models[provider]}
+                onChange={e => update({ models: { ...settings.models, [provider]: e.target.value } })}
+                style={inputStyle}
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                data-testid="ai-load-models-btn"
+                disabled={busy}
+                onClick={handleLoadModels}
+                title="Ask the provider which models are available"
+                style={btnStyle()}
+              >
+                Load models
+              </button>
+            </div>
+            <datalist id="ai-model-options" data-testid="ai-model-options">
+              {suggestedModels.map(id => (
+                <option key={id} value={id} />
+              ))}
+            </datalist>
 
             <label htmlFor="ai-base-url" style={labelStyle}>
               Base URL

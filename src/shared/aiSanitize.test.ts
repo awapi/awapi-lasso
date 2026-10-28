@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultGraphQLRequest, createDefaultHttpRequest, type RequestItem } from './collectionSchema';
+import {
+  createDefaultGraphQLRequest,
+  createDefaultHttpRequest,
+  createEmptyCollection,
+  type RequestItem,
+} from './collectionSchema';
 import type { HttpResponseResult } from './httpTypes';
 import { REDACTED } from './aiContext';
 import {
@@ -7,8 +12,12 @@ import {
   applyRequestChanges,
   applyVariableChanges,
   buildRequestFromSpec,
+  changedHostCaptures,
   changedUrlVariables,
   changesUrlOrigin,
+  collectionUrlOrigins,
+  hostVariableNames,
+  resolveRequestOrigin,
   describeRequestChanges,
   describeVariableChanges,
   describeTreeForAi,
@@ -366,6 +375,74 @@ describe('redirect detection', () => {
     ];
     expect(changedUrlVariables(before, after)).toEqual(['baseUrl', 'cdn']);
     expect(changedUrlVariables(before, before)).toEqual([]);
+  });
+
+  it('treats a leading {{scheme}}:// as part of the origin', () => {
+    expect(urlOrigin('{{scheme}}://{{host}}/v1')).toBe('{{scheme}}://{{host}}');
+  });
+
+  it('flags scheme forms without // and switching a URL variable off', () => {
+    expect(changedUrlVariables([], [{ key: 'baseUrl', value: 'https:evil.test', enabled: true }])).toEqual(['baseUrl']);
+    expect(changedUrlVariables([], [{ key: 'api', value: 'evil.test:443', enabled: true }])).toEqual(['api']);
+    const on = [{ key: 'baseUrl', value: 'https://a.test', enabled: true }];
+    expect(changedUrlVariables(on, [{ ...on[0], enabled: false }])).toEqual(['baseUrl']);
+  });
+
+  it('flags any change to a host variable, even when the value is a bare host', () => {
+    const before = [{ key: 'host', value: 'api.good.test', enabled: true }];
+    const after = [{ key: 'host', value: 'evil.test', enabled: true }];
+    expect(changedUrlVariables(before, after)).toEqual([]);
+    expect(changedUrlVariables(before, after, new Set(['host']))).toEqual(['host']);
+    expect(changedUrlVariables(before, before, new Set(['host']))).toEqual([]);
+  });
+
+  it('finds the variables that decide request hosts, across scopes, folders and references', () => {
+    const collection = {
+      ...createEmptyCollection('C', {
+        items: [
+          createDefaultHttpRequest({ url: 'https://{{host}}/v1/{{version}}' }),
+          {
+            kind: 'folder' as const,
+            id: 'f',
+            name: 'F',
+            variables: [{ key: 'svc', value: '{{scheme}}://{{svcHost}}', enabled: true }],
+            items: [createDefaultHttpRequest({ url: '{{baseUrl}}/users?q={{query}}' })],
+          },
+        ],
+      }),
+      variables: [{ key: 'baseUrl', value: 'https://{{tenant}}.api.test', enabled: true }],
+      environments: [{ id: 'e', name: 'dev', variables: [{ key: 'region', value: 'eu', enabled: true }] }],
+    };
+    const names = hostVariableNames(collection);
+    expect([...names].sort()).toEqual(['baseUrl', 'host', 'tenant'].sort());
+    expect(names.has('version')).toBe(false);
+    expect(names.has('query')).toBe(false);
+    expect(collectionUrlOrigins(collection)).toEqual(new Set(['https://{{host}}', '{{baseurl}}']));
+  });
+
+  it('flags new or changed captures into host variables only', () => {
+    const hosts = new Set(['baseUrl']);
+    const capture = { variable: 'baseUrl', scope: 'environment' as const, source: 'jsonpath' as const, expression: '$.url', enabled: true };
+    const harmless = { ...capture, variable: 'orderId' };
+    expect(changedHostCaptures([], [capture, harmless], hosts)).toEqual(['baseUrl']);
+    expect(changedHostCaptures([capture], [capture], hosts)).toEqual([]);
+    expect(changedHostCaptures([capture], [{ ...capture, expression: '$.website' }], hosts)).toEqual(['baseUrl']);
+    expect(changedHostCaptures([], [{ ...capture, enabled: false }], hosts)).toEqual([]);
+  });
+
+  it('resolves the origin a request is sent to, without userinfo', () => {
+    const request = createDefaultHttpRequest({ url: '{{baseUrl}}/users/:id', pathParams: [{ key: 'id', value: '1' }] });
+    const env = (value: string) => ({ environmentVariables: [{ key: 'baseUrl', value, enabled: true }] });
+    expect(resolveRequestOrigin(request, env('https://API.good.test:8443/v1'))).toBe('https://api.good.test:8443');
+    expect(resolveRequestOrigin(request, env('https:evil.test'))).toBe('https://evil.test');
+    expect(resolveRequestOrigin(request, env('https://user:pw@evil.test'))).toBe('https://evil.test');
+    expect(
+      resolveRequestOrigin(request, {
+        ...env('https://good.test'),
+        capturedVariables: [{ key: 'baseUrl', value: 'https://evil.test', enabled: true }],
+      }),
+    ).toBe('https://evil.test');
+    expect(resolveRequestOrigin(request, {})).toBeNull();
   });
 });
 

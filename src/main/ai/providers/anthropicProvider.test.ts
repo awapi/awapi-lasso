@@ -4,6 +4,7 @@ import {
   REFUSAL_NOTICE,
   acceptsSamplingParams,
   buildAnthropicBody,
+  listAnthropicModels,
   streamAnthropicChat,
   toAnthropicMessages,
 } from './anthropicProvider';
@@ -213,5 +214,34 @@ describe('anthropic provider', () => {
       { type: 'text-delta', text: REFUSAL_NOTICE },
       { type: 'done', stopReason: 'refusal' },
     ]);
+  });
+});
+
+describe('anthropic model listing', () => {
+  it('lists models in API order with the Anthropic headers', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: 'claude-opus-5-5' }, { id: 'claude-haiku-5-5' }], has_more: false }), {
+        status: 200,
+      }),
+    );
+    const models = await listAnthropicModels({ apiKey: 'sk-ant', baseUrl: 'https://api.anthropic.com/v1', fetchImpl });
+    expect(models).toEqual(['claude-opus-5-5', 'claude-haiku-5-5']);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.anthropic.com/v1/models?limit=1000');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['x-api-key']).toBe('sk-ant');
+    expect(headers['anthropic-version']).toBe(ANTHROPIC_VERSION);
+  });
+
+  it('requires a key and maps HTTP errors', async () => {
+    const fetchImpl = vi.fn();
+    await expect(listAnthropicModels({ apiKey: null, baseUrl: 'https://api.anthropic.com/v1', fetchImpl })).rejects.toThrow(
+      /No Anthropic API key/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    fetchImpl.mockResolvedValue(new Response('{"error":{"message":"invalid x-api-key"}}', { status: 401 }));
+    await expect(listAnthropicModels({ apiKey: 'k', baseUrl: 'https://api.anthropic.com/v1', fetchImpl })).rejects.toThrow(
+      /rejected the API key/,
+    );
   });
 });
