@@ -363,4 +363,75 @@ describe('CollectionSidebar', () => {
     fireEvent.doubleClick(splitter);
     expect(firstNode).toHaveStyle({ flex: '1 1 0%' });
   });
+
+  it('lets the expanded collection be resized when its neighbour is collapsed', () => {
+    const secondCollection = createEmptyCollection('Public Web APIs', {
+      metadata: { id: 'col_public', name: 'Public Web APIs' },
+      items: [getReq],
+    });
+    const multiEntries: WorkspaceCollectionEntry[] = [
+      ...sampleEntries,
+      { filePath: '/Users/me/apis/public.awjc', collection: secondCollection },
+    ];
+
+    render(
+      <CollectionSidebar
+        collections={multiEntries}
+        activeCollectionPath="/Users/me/apis/payments.awjc"
+        onSelectCollection={vi.fn()}
+        onSelectRequest={vi.fn()}
+        onNewCollection={vi.fn()}
+        onImportCollection={vi.fn()}
+        onSaveCollection={vi.fn()}
+        onSaveCollectionAs={vi.fn()}
+        onNewHttpRequest={vi.fn()}
+        onNewGraphQLRequest={vi.fn()}
+        onNewFolder={vi.fn()}
+        onDuplicateItem={vi.fn()}
+        onRenameItem={vi.fn()}
+        onDeleteItem={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('toggle-collection-col_public'));
+
+    const splitter = screen.getByTestId('collection-splitter-0');
+    expect(splitter).toHaveStyle({ cursor: 'row-resize' });
+
+    fireEvent.mouseDown(splitter, { clientY: 200 });
+    fireEvent.mouseMove(window, { clientY: 260 });
+    fireEvent.mouseUp(window);
+
+    expect(screen.getByTestId('collection-node-col_payments')).toHaveStyle({ height: '300px' });
+  });
+
+  it('toggles a collection and selects it when its name is clicked', () => {
+    const onSelectCollection = vi.fn();
+    render(
+      <CollectionSidebar
+        collections={sampleEntries}
+        activeCollectionPath={null}
+        onSelectCollection={onSelectCollection}
+        onSelectRequest={vi.fn()}
+        onNewCollection={vi.fn()}
+        onImportCollection={vi.fn()}
+        onSaveCollection={vi.fn()}
+        onSaveCollectionAs={vi.fn()}
+        onNewHttpRequest={vi.fn()}
+        onNewGraphQLRequest={vi.fn()}
+        onNewFolder={vi.fn()}
+        onDuplicateItem={vi.fn()}
+        onRenameItem={vi.fn()}
+        onDeleteItem={vi.fn()}
+      />,
+    );
+
+    const name = screen.getByTestId('collection-name-col_payments');
+    expect(screen.getByTestId('collection-tree-col_payments')).toBeInTheDocument();
+    fireEvent.click(name);
+    expect(screen.queryByTestId('collection-tree-col_payments')).not.toBeInTheDocument();
+    expect(onSelectCollection).toHaveBeenCalled();
+    fireEvent.click(name);
+    expect(screen.getByTestId('collection-tree-col_payments')).toBeInTheDocument();
+  });
 });

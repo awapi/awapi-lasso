@@ -186,6 +186,8 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
     topStartHeight: number;
     bottomStartHeight?: number;
     isBottomLastExpanded: boolean;
+    /** 1 when dragging down grows `topId`; -1 when it grows the expanded collection below a collapsed one. */
+    direction: 1 | -1;
   } | null>(null);
 
   const handleSplitterMouseDown = useCallback(
@@ -198,7 +200,30 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
       const topId = topEntry.collection.metadata.id || topEntry.filePath;
       const bottomId = bottomEntry.collection.metadata.id || bottomEntry.filePath;
 
-      if (collapsedIds[topId] || collapsedIds[bottomId]) return;
+      if (collapsedIds[topId] && collapsedIds[bottomId]) return;
+
+      // Only one side is expanded: resize that one; the collapsed neighbour has no height to trade.
+      if (collapsedIds[topId] || collapsedIds[bottomId]) {
+        const growsBelow = Boolean(collapsedIds[topId]);
+        const targetId = growsBelow ? bottomId : topId;
+        const rectHeight =
+          collectionNodeRefs.current[targetId]?.getBoundingClientRect().height ?? 0;
+        dragStateRef.current = {
+          index,
+          topId: targetId,
+          bottomId: targetId,
+          startY: e.clientY,
+          topStartHeight:
+            rectHeight > 0
+              ? Math.round(rectHeight)
+              : (collectionHeights[targetId] ?? DEFAULT_COLLECTION_HEIGHT),
+          bottomStartHeight: undefined,
+          isBottomLastExpanded: false,
+          direction: growsBelow ? -1 : 1,
+        };
+        setDraggingSplitterIndex(index);
+        return;
+      }
 
       const topRectHeight =
         collectionNodeRefs.current[topId]?.getBoundingClientRect().height ?? 0;
@@ -233,6 +258,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
         topStartHeight,
         bottomStartHeight,
         isBottomLastExpanded,
+        direction: 1,
       };
       setDraggingSplitterIndex(index);
     },
@@ -264,7 +290,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
       const dragState = dragStateRef.current;
       if (!dragState) return;
 
-      const delta = e.clientY - dragState.startY;
+      const delta = (e.clientY - dragState.startY) * dragState.direction;
       const listRectHeight =
         collectionListRef.current?.getBoundingClientRect().height ?? 0;
       const effectiveMax =
@@ -993,7 +1019,7 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                   ? nextEntry.collection.metadata.id || nextEntry.filePath
                   : null;
                 const isNextCollapsed = nextColId ? Boolean(collapsedIds[nextColId]) : false;
-                const isSplitterDisabled = isCollapsed || isNextCollapsed;
+                const isSplitterDisabled = isCollapsed && isNextCollapsed;
                 const isDraggingThisSplitter = draggingSplitterIndex === index;
 
                 return (
@@ -1097,6 +1123,8 @@ export const CollectionSidebar: React.FC<CollectionSidebarProps> = ({
                         ) : (
                           <span
                             title={entry.filePath}
+                            data-testid={`collection-name-${entry.collection.metadata.id}`}
+                            onClick={() => toggleCollapse(colId)}
                             onDoubleClick={e => {
                               e.stopPropagation();
                               startRename(`col:${entry.filePath}`, entry.collection.metadata.name);
